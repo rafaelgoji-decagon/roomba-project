@@ -20,9 +20,14 @@ CHARGING_STATES = {
 
 
 def find_port() -> str:
-    candidates = sorted(glob.glob("/dev/cu.usbserial-*") + glob.glob("/dev/cu.usbmodem*"))
+    candidates = sorted(
+        glob.glob("/dev/cu.usbserial-*")
+        + glob.glob("/dev/cu.usbmodem*")
+        + glob.glob("/dev/ttyUSB*")
+        + glob.glob("/dev/ttyACM*")
+    )
     if not candidates:
-        raise RuntimeError("No USB serial adapter found under /dev/cu.*")
+        raise RuntimeError("No USB serial adapter found (checked macOS and Linux device names)")
     return candidates[0]
 
 
