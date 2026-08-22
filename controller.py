@@ -11,6 +11,7 @@ from typing import Any
 import serial
 
 from roomba import CHARGING_STATES, find_port
+from terminal_ui import event
 
 
 WATCHDOG_SECONDS = 0.40
@@ -118,11 +119,13 @@ class RobotController:
         self._last_error = ""
 
     def start(self) -> None:
+        event("system", "I/O controller online · motors locked", "ok")
         self._running = True
         self._thread = threading.Thread(target=self._loop, name="roomba-io", daemon=True)
         self._thread.start()
 
     def shutdown(self) -> None:
+        event("system", "Shutdown requested · forcing motor stop", "warn")
         self._running = False
         self.emergency_stop()
         if self._thread:
@@ -137,16 +140,28 @@ class RobotController:
                 or battery_percent is None
                 or battery_percent < MIN_BATTERY_PERCENT
             ):
+                reason = "serial unavailable"
+                if self._emergency:
+                    reason = "emergency latch active"
+                elif battery_percent is None:
+                    reason = "battery telemetry unavailable"
+                elif battery_percent < MIN_BATTERY_PERCENT:
+                    reason = f"battery {battery_percent:.1f}% < {MIN_BATTERY_PERCENT:.0f}%"
+                event("safety", f"ARM rejected · {reason}", "danger")
                 return False
             self._armed = True
             self._last_command = time.monotonic()
+            event("safety", "CONTROL ARMED · OI Safe requested", "warn")
             return True
 
     def disarm(self) -> None:
         with self._lock:
+            was_armed = self._armed
             self._armed = False
             self._desired = (0, 0)
             self._last_command = 0
+        if was_armed:
+            event("safety", "Control disarmed · returning to passive", "ok")
 
     def command(self, x: float, y: float) -> None:
         x = max(-1.0, min(1.0, x))
@@ -174,6 +189,7 @@ class RobotController:
             self._armed = False
             self._desired = (0, 0)
             self._last_command = 0
+        event("e-stop", "EMERGENCY STOP · motors zeroed", "danger")
 
     def clear_emergency(self) -> None:
         with self._lock:
@@ -199,13 +215,16 @@ class RobotController:
 
     def _connect(self) -> None:
         try:
+            event("serial", "Searching for Roomba OI adapter…")
             self._robot = MockRobot() if os.getenv("ROOMBA_MOCK") == "1" else SerialRobot()
             self._status = "simulated" if isinstance(self._robot, MockRobot) else "connected"
             self._last_error = ""
+            event("serial", f"Linked on {self._robot.port} · passive mode", "ok")
         except Exception as error:
             self._robot = None
             self._status = "disconnected"
             self._last_error = str(error)
+            event("serial", f"Link failed · {error}", "danger")
 
     def _loop(self) -> None:
         last_sent: tuple[int, int] | None = None
@@ -214,6 +233,8 @@ class RobotController:
         # Negative infinity guarantees an immediate first connection even on
         # platforms whose monotonic clock begins near process startup.
         last_connect = float("-inf")
+        last_battery_signature: tuple[Any, ...] | None = None
+        watchdog_fired = False
         while self._running:
             now = time.monotonic()
             if self._robot is None and now - last_connect >= 2:
@@ -224,6 +245,11 @@ class RobotController:
                 target = self._desired if (self._armed and not self._emergency and fresh) else (0, 0)
                 if not fresh:
                     self._desired = (0, 0)
+                if self._armed and not fresh and not watchdog_fired:
+                    watchdog_fired = True
+                    event("watchdog", "Command stream lost · motors zeroed", "danger")
+                elif fresh:
+                    watchdog_fired = False
             if self._robot is not None:
                 try:
                     should_enable = self._armed and not self._emergency and fresh
@@ -240,6 +266,21 @@ class RobotController:
                         last_sent = target
                     if now - last_sensor >= 2 and target == (0, 0):
                         self._telemetry = self._robot.battery()
+                        signature = (
+                            self._telemetry.get("percent"),
+                            self._telemetry.get("charging"),
+                            self._telemetry.get("amps"),
+                        )
+                        if signature != last_battery_signature:
+                            event(
+                                "battery",
+                                f"{self._telemetry['percent']:>5.1f}%  "
+                                f"{self._telemetry['volts']:.2f}V  "
+                                f"{self._telemetry['amps']:+.3f}A  "
+                                f"{self._telemetry['charging']}",
+                                "ok" if self._telemetry["amps"] > 0 else "warn",
+                            )
+                            last_battery_signature = signature
                         last_sensor = now
                 except Exception as error:
                     try:
@@ -251,7 +292,9 @@ class RobotController:
                     last_sent = None
                     self._status = "disconnected"
                     self._last_error = str(error)
+                    event("serial", f"Connection lost · {error}", "danger")
                     self.disarm()
             time.sleep(0.04)
         if self._robot is not None:
             self._robot.close()
+        event("system", "Controller offline · serial released", "ok")

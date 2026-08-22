@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from controller import RobotController
+from terminal_ui import event
 
 
 ROOT = Path(__file__).parent
@@ -43,7 +44,10 @@ async def status() -> dict:
 @app.websocket("/ws/control")
 async def control_socket(socket: WebSocket) -> None:
     await socket.accept()
+    client = socket.client.host if socket.client else "unknown"
+    event("client", f"Web control connected · {client}", "ok")
     if control_lock.locked():
+        event("client", f"Rejected {client} · another pilot is active", "warn")
         await socket.send_json({"type": "busy", "message": "Otro dispositivo tiene el control"})
         await socket.close(code=1008)
         return
@@ -74,3 +78,4 @@ async def control_socket(socket: WebSocket) -> None:
             pass
         finally:
             controller.disarm()
+            event("client", f"Web control disconnected · {client}", "warn")

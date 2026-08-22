@@ -17,7 +17,7 @@ Haz las primeras pruebas con la Roomba levantada, ruedas libres y batería sufic
 ## Probar sin hardware
 
 ```bash
-ROOMBA_MOCK=1 .venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000
+ROOMBA_MOCK=1 .venv/bin/python run.py
 ```
 
 Abre `http://localhost:8000`. Desde otro equipo de la red usa la IP de esta computadora.
@@ -27,13 +27,13 @@ Abre `http://localhost:8000`. Desde otro equipo de la red usa la IP de esta comp
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000
+.venv/bin/python run.py
 ```
 
 Normalmente el adaptador será `/dev/ttyUSB0`. Si hay más de uno:
 
 ```bash
-ROOMBA_PORT=/dev/ttyUSB0 .venv/bin/uvicorn app:app --host 0.0.0.0 --port 8000
+ROOMBA_PORT=/dev/ttyUSB0 .venv/bin/python run.py
 ```
 
 El usuario del servicio debe tener permiso para el puerto serial (habitualmente pertenecer al grupo `dialout`).
