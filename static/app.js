@@ -22,7 +22,7 @@ function setArmed(value) {
   armed = value; ui.joystick.classList.toggle('disabled', !armed); ui.arm.classList.toggle('active', armed);
   ui.arm.textContent = armed ? 'DESARMAR' : (batteryOK ? 'ARMAR CONTROL' : 'BATERÍA INSUFICIENTE');
   ui.arm.disabled = !armed && !batteryOK;
-  ui.instruction.textContent = armed ? 'Mantén y arrastra para conducir' : (batteryOK ? 'Arma el control para habilitar el joystick' : 'Se requiere al menos 20% de batería');
+  ui.instruction.textContent = armed ? 'Mantén y arrastra para conducir' : (batteryOK ? 'Arma el control para habilitar el joystick' : 'Esperando telemetría de batería');
   if (!armed) resetStick();
 }
 function render(data) {
@@ -31,7 +31,11 @@ function render(data) {
   ui.mode.textContent = data.status === 'simulated' ? 'SIM' : (data.armed ? 'ARMADO' : 'SEGURO'); ui.speed.textContent = `Máx. ${data.max_speed || '—'} mm/s`;
   ui.left.textContent = `L ${data.motors?.left || 0}`; ui.right.textContent = `R ${data.motors?.right || 0}`;
   batteryOK = Boolean(data.battery_ok); ui.arm.disabled = !armed && !batteryOK;
-  if (!armed) { ui.arm.textContent = batteryOK ? 'ARMAR CONTROL' : 'BATERÍA INSUFICIENTE'; ui.instruction.textContent = batteryOK ? 'Arma el control para habilitar el joystick' : `Se requiere al menos ${data.minimum_battery || 20}% de batería`; }
+  if (!armed) {
+    const threshold = Number(data.minimum_battery ?? 0);
+    ui.arm.textContent = batteryOK ? 'ARMAR CONTROL' : (threshold > 0 ? 'BATERÍA INSUFICIENTE' : 'ESPERANDO BATERÍA');
+    ui.instruction.textContent = batteryOK ? 'Arma el control para habilitar el joystick' : (threshold > 0 ? `Se requiere al menos ${threshold}% de batería` : 'Esperando telemetría de batería');
+  }
   if (!data.armed && armed) setArmed(false);
 }
 function moveStick(event) {

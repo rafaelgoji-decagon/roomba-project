@@ -16,7 +16,7 @@ from terminal_ui import event
 
 WATCHDOG_SECONDS = 0.40
 MAX_SPEED_MM_S = 180
-MIN_BATTERY_PERCENT = 20.0
+MIN_BATTERY_PERCENT = float(os.getenv("ROOMBA_MIN_BATTERY", "0"))
 
 
 class SerialRobot:

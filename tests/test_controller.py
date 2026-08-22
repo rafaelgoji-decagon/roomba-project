@@ -36,11 +36,11 @@ class ControllerSafetyTests(unittest.TestCase):
         self.assertTrue(state["emergency"])
         self.assertEqual(state["motors"], {"left": 0, "right": 0})
 
-    def test_low_battery_cannot_arm(self) -> None:
+    def test_low_battery_can_arm_when_threshold_disabled(self) -> None:
         with self.controller._lock:
             self.controller._telemetry["percent"] = 3.0
-        self.assertFalse(self.controller.arm())
-        self.assertFalse(self.controller.snapshot()["battery_ok"])
+        self.assertTrue(self.controller.arm())
+        self.assertTrue(self.controller.snapshot()["battery_ok"])
 
 
 if __name__ == "__main__":

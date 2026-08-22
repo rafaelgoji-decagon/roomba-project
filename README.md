@@ -10,7 +10,8 @@ Portal local para controlar una Roomba desde el navegador de un celular mediante
 - Al cerrar/ocultar la página o perder el WebSocket, se desarma.
 - Solo un navegador puede tener la sesión de control.
 - La Roomba se opera en modo OI Safe, que conserva las protecciones integradas.
-- El backend rechaza armar los motores mientras la batería sea menor a 20%.
+- El umbral de batería está desactivado por defecto para pruebas breves. Puede
+  restaurarse, por ejemplo, con `ROOMBA_MIN_BATTERY=20 .venv/bin/python run.py`.
 
 Haz las primeras pruebas con la Roomba levantada, ruedas libres y batería suficiente.
 
