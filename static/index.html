@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#071611" />
+    <title>Roomba Deck</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">CONTROL LOCAL</p>
+          <h1>ROOMBA <span>DECK</span></h1>
+        </div>
+        <div id="connection" class="pill offline"><i></i><span>Conectando</span></div>
+      </header>
+
+      <section class="telemetry" aria-label="Telemetría">
+        <article><span>BATERÍA</span><strong id="battery">—%</strong><small id="charge">Esperando datos</small></article>
+        <article><span>VOLTAJE</span><strong id="volts">—</strong><small id="current">— A</small></article>
+        <article><span>MODO</span><strong id="mode">SEGURO</strong><small id="speed">Máx. — mm/s</small></article>
+      </section>
+
+      <section class="control-panel">
+        <div class="instructions">
+          <p id="instruction">Esperando estado seguro de batería</p>
+          <div class="motor-readout"><span id="leftMotor">L 0</span><span id="rightMotor">R 0</span></div>
+        </div>
+        <div id="joystick" class="joystick disabled" role="application" aria-label="Joystick de movimiento">
+          <div class="axis vertical"></div><div class="axis horizontal"></div>
+          <div id="stick" class="stick"><div></div></div>
+          <span class="north">AVANZAR</span><span class="south">REVERSA</span>
+        </div>
+      </section>
+
+      <section class="actions">
+        <button id="arm" class="arm">ARMAR CONTROL</button>
+        <button id="emergency" class="emergency">PARADA</button>
+      </section>
+      <p class="safety">Al soltar el joystick se detiene. Si la conexión se pierde, la Raspberry Pi corta los motores automáticamente.</p>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

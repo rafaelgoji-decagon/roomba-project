@@ -1,0 +1,32 @@
+:root { color-scheme: dark; --green:#51f6a8; --ink:#071611; --panel:#0d211a; --line:#244036; --muted:#86a397; }
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { margin:0; min-height:100%; background:var(--ink); color:#f3fff9; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; overscroll-behavior:none; }
+body { background:radial-gradient(circle at 50% 15%, #17392b 0, var(--ink) 44%); }
+main { width:min(100%, 680px); min-height:100vh; margin:auto; padding:24px 18px 28px; display:flex; flex-direction:column; gap:18px; }
+header { display:flex; align-items:center; justify-content:space-between; }
+.eyebrow { color:var(--green); font-size:10px; letter-spacing:.24em; margin:0 0 5px; }
+h1 { font:800 clamp(25px,7vw,40px)/1 system-ui,sans-serif; letter-spacing:-.06em; margin:0; } h1 span { color:var(--green); }
+.pill { display:flex; align-items:center; gap:8px; padding:9px 11px; border:1px solid var(--line); border-radius:99px; color:var(--muted); font-size:10px; }
+.pill i { width:7px; height:7px; background:#ff5d5d; border-radius:50%; box-shadow:0 0 10px #ff5d5d; }
+.pill.online { color:var(--green); border-color:#2a6c4d; } .pill.online i { background:var(--green); box-shadow:0 0 10px var(--green); }
+.telemetry { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.telemetry article { min-width:0; border:1px solid var(--line); background:rgba(13,33,26,.82); border-radius:13px; padding:12px; }
+.telemetry span { display:block; color:var(--muted); font-size:9px; letter-spacing:.12em; }
+.telemetry strong { display:block; margin:7px 0 4px; font:700 clamp(17px,5vw,25px)/1 system-ui,sans-serif; white-space:nowrap; overflow:hidden; }
+.telemetry small { color:var(--muted); font-size:9px; white-space:nowrap; overflow:hidden; display:block; text-overflow:ellipsis; }
+.control-panel { flex:1; display:flex; flex-direction:column; justify-content:center; min-height:400px; border:1px solid var(--line); background:linear-gradient(145deg,rgba(14,36,28,.94),rgba(6,19,14,.96)); border-radius:22px; padding:16px; }
+.instructions { display:flex; justify-content:space-between; align-items:center; gap:12px; color:var(--muted); font-size:10px; }
+.instructions p { margin:0; } .motor-readout { display:flex; gap:8px; color:var(--green); white-space:nowrap; }
+.joystick { position:relative; width:min(72vw,320px); aspect-ratio:1; margin:24px auto 12px; border-radius:50%; border:1px solid #315648; background:radial-gradient(circle,#17372c 0 9%,transparent 10%),radial-gradient(circle,#10291f,#091a14 68%); touch-action:none; transition:opacity .2s; }
+.joystick.disabled { opacity:.35; }
+.axis { position:absolute; background:#25483a; pointer-events:none; } .axis.vertical { width:1px; height:74%; top:13%; left:50%; } .axis.horizontal { height:1px; width:74%; left:13%; top:50%; }
+.stick { position:absolute; left:50%; top:50%; width:32%; aspect-ratio:1; transform:translate(-50%,-50%); border-radius:50%; padding:7px; background:linear-gradient(145deg,#4dffae,#21a86d); box-shadow:0 10px 28px #0008,0 0 24px #41ed9b33; }
+.stick div { width:100%; height:100%; border:1px solid #b8ffdc88; border-radius:50%; background:#173d2e; }
+.north,.south { position:absolute; left:50%; transform:translateX(-50%); color:#527265; font-size:8px; letter-spacing:.16em; pointer-events:none; }.north{top:6%;}.south{bottom:6%;}
+.actions { display:grid; grid-template-columns:1fr .72fr; gap:10px; }
+button { min-height:58px; border:0; border-radius:13px; font:800 13px ui-monospace,monospace; letter-spacing:.06em; }
+.arm { background:var(--green); color:#062117; }.arm.active { background:#f2b84b; color:#281900; }
+.arm:disabled { background:#263b33; color:#789087; opacity:.75; }
+.emergency { color:white; background:#c52d35; box-shadow:inset 0 0 0 1px #ff666b; }
+.safety { color:#648378; text-align:center; font-size:9px; line-height:1.5; margin:0 14px; }
+@media (max-height:720px) { main{gap:10px;padding-top:14px}.control-panel{min-height:330px}.joystick{width:min(58vh,280px);margin:12px auto 2px}.actions button{min-height:50px}.safety{display:none} }
