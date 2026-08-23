@@ -1,0 +1,82 @@
+[
+  {
+    "run_id": "run-20260823-115822-005ed3",
+    "left_position_mae_mm": 390.1124338312705,
+    "right_position_mae_mm": 379.0893374475822,
+    "cross_track_mae_mm": 457.24990216118675,
+    "heading_mae_deg": 7.418304027156783,
+    "left_velocity_mae_mm_s": 23.845400979778123,
+    "right_velocity_mae_mm_s": 26.124825390436154,
+    "endpoint_distance_error_mm": -769.7642942958555
+  },
+  {
+    "run_id": "run-20260823-120820-377f83",
+    "left_position_mae_mm": 308.04753546730876,
+    "right_position_mae_mm": 310.90528248475243,
+    "cross_track_mae_mm": 392.0329091387382,
+    "heading_mae_deg": 8.229199073963402,
+    "left_velocity_mae_mm_s": 25.03738830717537,
+    "right_velocity_mae_mm_s": 23.874969584403736,
+    "endpoint_distance_error_mm": -620.3904549176223
+  },
+  {
+    "run_id": "run-20260823-121020-8223f4",
+    "left_position_mae_mm": 216.98564069994518,
+    "right_position_mae_mm": 196.1143375189211,
+    "cross_track_mae_mm": 605.4973414109452,
+    "heading_mae_deg": 6.794334478110473,
+    "left_velocity_mae_mm_s": 24.781153063112026,
+    "right_velocity_mae_mm_s": 20.28223675186819,
+    "endpoint_distance_error_mm": -413.6677307781065
+  },
+  {
+    "run_id": "run-20260823-121342-4c02f5",
+    "left_position_mae_mm": 15.444704255278205,
+    "right_position_mae_mm": 13.777231040795582,
+    "cross_track_mae_mm": 223.26213310776802,
+    "heading_mae_deg": 6.70873090551417,
+    "left_velocity_mae_mm_s": 23.503323317087293,
+    "right_velocity_mae_mm_s": 24.491103125706292,
+    "endpoint_distance_error_mm": 3.5565199851971556
+  },
+  {
+    "run_id": "run-20260823-121539-97a195",
+    "left_position_mae_mm": 45.23281950459515,
+    "right_position_mae_mm": 34.358589531250495,
+    "cross_track_mae_mm": 596.0092306554379,
+    "heading_mae_deg": 7.172359553090818,
+    "left_velocity_mae_mm_s": 31.12999100328204,
+    "right_velocity_mae_mm_s": 29.594048038711467,
+    "endpoint_distance_error_mm": 76.68746218078559
+  },
+  {
+    "run_id": "run-20260823-121737-998f9c",
+    "left_position_mae_mm": 397.2200494555378,
+    "right_position_mae_mm": 432.8389503525807,
+    "cross_track_mae_mm": 936.2847559446693,
+    "heading_mae_deg": 8.991001310868311,
+    "left_velocity_mae_mm_s": 23.776859075773952,
+    "right_velocity_mae_mm_s": 20.07001836161136,
+    "endpoint_distance_error_mm": 828.4468740515931
+  },
+  {
+    "run_id": "run-20260823-122025-23b254",
+    "left_position_mae_mm": 154.09528507159277,
+    "right_position_mae_mm": 151.17242518347385,
+    "cross_track_mae_mm": 423.6258869011483,
+    "heading_mae_deg": 5.767410542638175,
+    "left_velocity_mae_mm_s": 17.330924615540994,
+    "right_velocity_mae_mm_s": 12.485259025737435,
+    "endpoint_distance_error_mm": 303.41561123703104
+  },
+  {
+    "run_id": "run-20260823-122406-d4a8c2",
+    "left_position_mae_mm": 13.971179928495944,
+    "right_position_mae_mm": 13.57441865317305,
+    "cross_track_mae_mm": 250.6390704390265,
+    "heading_mae_deg": 5.36910083786586,
+    "left_velocity_mae_mm_s": 18.498012131905945,
+    "right_velocity_mae_mm_s": 15.709765685220251,
+    "endpoint_distance_error_mm": -3.5565199851953366
+  }
+]

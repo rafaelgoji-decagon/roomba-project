@@ -1,54 +1,11 @@
-<!doctype html>
-<html lang="es">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-    <meta name="theme-color" content="#071611" />
-    <title>Roomba Deck</title>
-    <link rel="stylesheet" href="/static/style.css" />
-  </head>
-  <body>
-    <main>
-      <header>
-        <div>
-          <p class="eyebrow">CONTROL LOCAL</p>
-          <h1>ROOMBA <span>DECK</span></h1>
-        </div>
-        <div id="connection" class="pill offline"><i></i><span>Conectando</span></div>
-      </header>
-
-      <section class="telemetry" aria-label="Telemetría">
-        <article><span>BATERÍA</span><strong id="battery">—%</strong><small id="charge">Esperando datos</small></article>
-        <article><span>VOLTAJE</span><strong id="volts">—</strong><small id="current">— A</small></article>
-        <article><span>MODO</span><strong id="mode">SEGURO</strong><small id="speed">Máx. — mm/s</small></article>
-      </section>
-
-      <section class="camera-panel">
-        <img id="camera" src="/camera.mjpg" alt="Video en vivo de la cámara" />
-        <div id="cameraOffline" class="camera-offline">CÁMARA INICIANDO…</div>
-        <div class="camera-hud"><span id="recordLamp">● STANDBY</span><span id="sampleCount">0 MUESTRAS</span></div>
-      </section>
-
-      <section class="control-panel">
-        <div class="instructions">
-          <p id="instruction">Esperando telemetría de batería</p>
-          <div class="motor-readout"><span id="leftMotor">L 0</span><span id="rightMotor">R 0</span></div>
-        </div>
-        <div id="joystick" class="joystick disabled" role="application" aria-label="Joystick de movimiento">
-          <div class="axis vertical"></div><div class="axis horizontal"></div>
-          <div id="stick" class="stick"><div></div></div>
-          <span class="north">AVANZAR</span><span class="south">REVERSA</span>
-        </div>
-      </section>
-
-      <section class="actions">
-        <button id="arm" class="arm">ARMAR CONTROL</button>
-        <button id="emergency" class="emergency">PARADA</button>
-      </section>
-      <button id="record" class="record">● COMENZAR A RECOLECTAR</button>
-      <p class="session" id="session">Sin sesión de datos</p>
-      <p class="safety">Mantén y arrastra el joystick; al soltar se detiene. Si se pierde la conexión, la Raspberry Pi corta los motores y guarda la sesión.</p>
-    </main>
-    <script src="/static/app.js"></script>
-  </body>
-</html>
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta name="theme-color" content="#f5f5f7"><title>Roomba</title><link rel="stylesheet" href="/static/style.css"></head><body><main>
+<header><div><span class="overline">Kosmos</span><h1>Roomba</h1></div><div id="connection" class="status offline"><i></i><span>Conectando</span></div></header>
+<section class="camera-card"><img id="camera" src="/camera.mjpg" alt="Vista en vivo de la Roomba"><div id="cameraOffline" class="camera-offline">Conectando cámara…</div><div class="camera-top"><span id="recordLamp">En vivo</span><span id="battery">—%</span></div></section>
+<section class="quick-status" aria-label="Estado de Roomba"><div><span>Estado</span><strong id="mode">Segura</strong></div><div><span>Batería</span><strong id="charge">Esperando</strong></div><div><span>Velocidad</span><strong id="speed">0 mm/s</strong></div></section>
+<nav class="switcher" aria-label="Modo de control"><button id="manualTab" class="selected" type="button">Conducir</button><button id="autoTab" type="button">Ruta autónoma</button></nav>
+<section id="manualPanel" class="mode-panel"><div class="panel-heading"><div><h2>Control manual</h2><p id="instruction">Esperando telemetría</p></div><div class="motor-readout"><span id="leftMotor">0</span><span id="rightMotor">0</span></div></div><div id="joystick" class="joystick disabled" role="application" aria-label="Joystick de movimiento"><div class="axis vertical"></div><div class="axis horizontal"></div><div id="stick" class="stick"></div></div><button id="arm" class="primary" type="button">Activar control</button></section>
+<section id="autoPanel" class="mode-panel" hidden><div class="route-head"><div><span class="route-icon">⌁</span><h2>Ruta aprendida</h2><p>Recorrido local · velocidad reducida</p></div><strong id="autoPercent">0%</strong></div><div class="progress"><i id="autoProgress"></i></div><div id="autoMessage" class="route-message">Primero prepara la Roomba en el punto de inicio.</div><div class="route-actions"><button id="autoReady" class="secondary" type="button">Preparar ruta</button><button id="autoPlay" class="primary" type="button" disabled>Iniciar</button></div><button id="autoCancel" class="text-button" type="button">Cancelar ruta</button></section>
+<button id="emergency" class="emergency" type="button"><span>■</span> Detener ahora</button>
+<section class="details"><button id="detailsToggle" type="button"><span>Detalles y grabación</span><span>⌄</span></button><div id="detailsBody" hidden><div class="detail-grid"><span>Voltaje <b id="volts">—</b></span><span>Corriente <b id="current">—</b></span><span>Muestras <b id="sampleCount">0</b></span></div><button id="record" class="record" type="button">Comenzar grabación manual</button><p id="session">Sin sesión activa</p></div></section>
+<p class="safety">Mantén la Roomba a la vista. Al cerrar esta página o perder conexión, el movimiento se detiene.</p>
+</main><script src="/static/app.js"></script></body></html>

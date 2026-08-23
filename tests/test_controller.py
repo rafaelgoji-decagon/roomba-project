@@ -40,6 +40,15 @@ class ControllerSafetyTests(unittest.TestCase):
         self.assertTrue(state["emergency"])
         self.assertEqual(state["motors"], {"left": 0, "right": 0})
 
+    def test_explicit_wheel_command_keeps_safety_gates_and_speed_limit(self) -> None:
+        self.assertFalse(self.controller.command_wheels(400, 400, 125))
+        self.assertTrue(self.controller.arm())
+        self.assertTrue(self.controller.command_wheels(400, -400, 125))
+        deadline = time.monotonic() + 0.3
+        while self.controller.snapshot()["motors"]["left"] == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(self.controller.snapshot()["motors"], {"left": 125, "right": -125})
+
     def test_low_battery_can_arm_when_threshold_disabled(self) -> None:
         with self.controller._lock:
             self.controller._telemetry["percent"] = 3.0

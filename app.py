@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from controller import RobotController
 from camera import Camera
 from dataset import DatasetRecorder
+from autonomous import AutonomousRunner
 from terminal_ui import event
 
 
@@ -23,6 +24,7 @@ controller = RobotController()
 camera = Camera()
 recorder = DatasetRecorder(camera, controller.snapshot)
 controller.set_event_sink(recorder.record_event)
+runner = AutonomousRunner(controller, ROOT / "training" / "artifacts" / "route_reference.json", recorder.record_event)
 control_lock = asyncio.Lock()
 
 
@@ -31,6 +33,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     controller.start()
     camera.start()
     yield
+    runner.cancel("server shutdown")
     recorder.shutdown()
     camera.stop()
     controller.shutdown()
@@ -54,6 +57,7 @@ def full_status() -> dict:
     state = controller.snapshot()
     state["camera"] = camera.status()
     state["dataset"] = recorder.status()
+    state["autonomous"] = runner.status()
     return state
 
 
@@ -73,6 +77,7 @@ async def control_socket(socket: WebSocket) -> None:
         await socket.close(code=1008)
         return
     async with control_lock:
+        previous_auto_state = runner.status()["state"]
         try:
             recorder.record_event("client_connected", {"client": client})
             await socket.send_json({"type": "status", "data": full_status()})
@@ -85,6 +90,7 @@ async def control_socket(socket: WebSocket) -> None:
                 if message is not None:
                     kind = message.get("type")
                     if kind == "arm":
+                        runner.cancel("manual control requested")
                         recorder.record_event("requested_arm", {"client": client})
                         controller.clear_emergency()
                         armed = controller.arm()
@@ -96,28 +102,61 @@ async def control_socket(socket: WebSocket) -> None:
                             "requested_drive",
                             {"client": client, "sequence": message.get("sequence"), "x": x, "y": y},
                         )
-                        controller.command(x, y)
+                        if runner.status()["state"] != "running":
+                            controller.command(x, y)
                     elif kind == "stop":
                         recorder.record_event("requested_stop", {"client": client, "sequence": message.get("sequence")})
-                        controller.stop_motion()
+                        if runner.status()["state"] == "running":
+                            runner.pause()
+                            recorder.stop()
+                        else:
+                            controller.stop_motion()
                     elif kind == "emergency":
                         recorder.record_event("requested_emergency", {"client": client})
-                        controller.emergency_stop()
+                        runner.emergency_stop()
                     elif kind == "disarm":
                         recorder.record_event("requested_disarm", {"client": client})
+                        runner.cancel("control disarmed")
                         controller.disarm()
                     elif kind == "record_start":
-                        recorder.start()
+                        recorder.start("manual")
                         recorder.record_event("recording_started", {"client": client})
                     elif kind == "record_stop":
                         recorder.record_event("recording_stopped", {"client": client})
                         recorder.stop()
+                    elif kind == "auto_ready":
+                        recorder.record_event("requested_autonomous_ready", {"client": client})
+                        runner.ready()
+                    elif kind == "auto_play":
+                        recorder.start(
+                            "autonomous",
+                            {
+                                "route_model": runner.status()["model"],
+                                "autonomous_max_speed_mm_s": runner.status()["max_speed_mm_s"],
+                            },
+                        )
+                        recorder.record_event("requested_autonomous_play", {"client": client})
+                        if not runner.start():
+                            recorder.stop()
+                    elif kind == "auto_pause":
+                        recorder.record_event("requested_autonomous_pause", {"client": client})
+                        runner.pause()
+                        recorder.stop()
+                    elif kind == "auto_cancel":
+                        recorder.record_event("requested_autonomous_cancel", {"client": client})
+                        runner.cancel("user cancelled")
+                        recorder.stop()
+                auto_state = runner.status()["state"]
+                if previous_auto_state == "running" and auto_state in {"complete", "fault", "idle"}:
+                    recorder.stop()
+                previous_auto_state = auto_state
                 if time.monotonic() >= next_status:
                     await socket.send_json({"type": "status", "data": full_status()})
                     next_status = time.monotonic() + 0.5
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
+            runner.cancel("control connection lost")
             controller.disarm()
             recorder.record_event("client_disconnected", {"client": client})
             recorder.stop()

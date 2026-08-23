@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import math
 import struct
 import threading
 import time
@@ -188,11 +189,20 @@ class MockRobot:
         self.port = "simulation"
         self.left = 0
         self.right = 0
+        self.left_encoder = 0.0
+        self.right_encoder = 0.0
+        self._last_sensor_at = time.monotonic()
 
     def drive(self, left: int, right: int) -> None:
         self.left, self.right = left, right
 
     def sensors(self) -> dict[str, Any]:
+        now = time.monotonic()
+        elapsed = now - self._last_sensor_at
+        self._last_sensor_at = now
+        counts_per_mm = 508.8 / (math.pi * 72.0)
+        self.left_encoder += self.left * elapsed * counts_per_mm
+        self.right_encoder += self.right * elapsed * counts_per_mm
         battery = {
             "volts": 16.1,
             "amps": -0.08 if (self.left or self.right) else 0.0,
@@ -208,6 +218,7 @@ class MockRobot:
             "wheel_drops": {"caster": False, "left": False, "right": False},
             "cliff": {"left": False, "front_left": False, "front_right": False, "right": False},
             "distance_mm_delta": 0, "angle_deg_delta": 0,
+            "encoders": {"left": round(self.left_encoder) % 65536, "right": round(self.right_encoder) % 65536},
             "requested_oi": {"left_velocity_mm_s": self.left, "right_velocity_mm_s": self.right},
         }
 
@@ -316,6 +327,24 @@ class RobotController:
                 self._requested_axes = (x, y)
                 self._last_command = time.monotonic()
                 self._command_count += 1
+
+    def command_wheels(self, left_mm_s: int, right_mm_s: int, speed_limit: int = MAX_SPEED_MM_S) -> bool:
+        """Set an explicit wheel target and refresh the hard watchdog.
+
+        Autonomous control uses this narrow entry point so it retains the same
+        armed/emergency/watchdog gates as manual control.
+        """
+        limit = max(0, min(MAX_SPEED_MM_S, int(speed_limit)))
+        left = max(-limit, min(limit, int(left_mm_s)))
+        right = max(-limit, min(limit, int(right_mm_s)))
+        with self._lock:
+            if not self._armed or self._emergency:
+                return False
+            self._desired = (left, right)
+            self._requested_axes = (0.0, 0.0)
+            self._last_command = time.monotonic()
+            self._command_count += 1
+            return True
 
     def stop_motion(self) -> None:
         with self._lock:

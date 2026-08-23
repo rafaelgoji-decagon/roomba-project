@@ -44,6 +44,7 @@ class DatasetTests(unittest.TestCase):
             self.assertGreaterEqual(len(list((session / "frames").glob("*.jpg"))), 1)
             self.assertIn('"action":"left"', (session / "labels.jsonl").read_text())
             self.assertIn('"sequence":9', (session / "events.jsonl").read_text())
+            self.assertIn('"run_mode": "manual"', (session / "metadata.json").read_text())
         finally:
             recorder.shutdown()
 

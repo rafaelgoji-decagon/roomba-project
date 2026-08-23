@@ -44,7 +44,7 @@ class DatasetRecorder:
         self._thread = threading.Thread(target=self._loop, name="dataset", daemon=True)
         self._thread.start()
 
-    def start(self) -> bool:
+    def start(self, run_mode: str = "manual", metadata_extra: dict | None = None) -> bool:
         with self._lock:
             if self._active:
                 return True
@@ -59,7 +59,10 @@ class DatasetRecorder:
                 "started_at": self._started_at,
                 "sample_hz": self.hz,
                 "camera": self.camera.status(),
+                "run_mode": run_mode,
             }
+            if metadata_extra:
+                metadata.update(metadata_extra)
             (self._session_dir / "metadata.json").write_text(
                 json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
             )
