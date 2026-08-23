@@ -9,6 +9,7 @@ const ui = {
 };
 let socket, armed = false, batteryOK = false, recording = false;
 let activePointer = null, position = { x: 0, y: 0 }, reconnectTimer;
+let commandSequence = 0;
 
 function connect() {
   clearTimeout(reconnectTimer);
@@ -42,7 +43,7 @@ function stopDrive() {
   activePointer = null;
   position = { x: 0, y: 0 };
   ui.stick.style.transform = 'translate(-50%,-50%)';
-  send({ type: 'stop' });
+  send({ type: 'stop', sequence: ++commandSequence });
 }
 
 function setArmed(value) {
@@ -105,7 +106,7 @@ function beginDrive(event) {
   activePointer = event.pointerId;
   ui.joystick.setPointerCapture(activePointer);
   moveStick(event);
-  send({ type: 'drive', ...position });
+  send({ type: 'drive', sequence: ++commandSequence, ...position });
 }
 
 ui.joystick.addEventListener('pointerdown', beginDrive);
@@ -124,7 +125,9 @@ ui.emergency.addEventListener('click', () => {
 ui.record.addEventListener('click', () => send({ type: recording ? 'record_stop' : 'record_start' }));
 ui.camera.addEventListener('load', () => { ui.cameraOffline.hidden = true; });
 ui.camera.addEventListener('error', () => { ui.cameraOffline.hidden = false; });
-setInterval(() => { if (armed && activePointer !== null) send({ type: 'drive', ...position }); }, 80);
+setInterval(() => {
+  if (armed && activePointer !== null) send({ type: 'drive', sequence: ++commandSequence, ...position });
+}, 80);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { send({ type: 'disarm' }); setArmed(false); }
 });

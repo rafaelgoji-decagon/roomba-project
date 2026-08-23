@@ -54,7 +54,7 @@ class DatasetRecorder:
             (self._session_dir / "frames").mkdir(parents=True, exist_ok=False)
             self._started_at = datetime.now(timezone.utc).isoformat()
             metadata = {
-                "format_version": 1,
+                "format_version": 2,
                 "session_id": self._session_id,
                 "started_at": self._started_at,
                 "sample_hz": self.hz,
@@ -69,6 +69,23 @@ class DatasetRecorder:
             session_id = self._session_id
         event("dataset", f"RECORDING · {session_id}", "warn")
         return True
+
+    def record_event(self, kind: str, payload: dict) -> None:
+        """Append lossless command/control events while a session is active."""
+        with self._lock:
+            if not self._active or self._session_dir is None:
+                return
+            record = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "monotonic_s": round(time.monotonic(), 6),
+                "type": kind,
+                "data": payload,
+            }
+            try:
+                with (self._session_dir / "events.jsonl").open("a", encoding="utf-8") as events:
+                    events.write(json.dumps(record, separators=(",", ":")) + "\n")
+            except Exception as error:
+                self._last_error = str(error)
 
     def stop(self) -> None:
         with self._lock:
@@ -120,6 +137,12 @@ class DatasetRecorder:
                         "armed": state.get("armed", False),
                         "watchdog_ok": state.get("watchdog_ok", False),
                         "battery": state.get("battery", {}),
+                        "requested": state.get("requested", {}),
+                        "executed": state.get("executed", {}),
+                        "sensors": state.get("sensors", {}),
+                        "control": state.get("control", {}),
+                        "robot_status": state.get("status"),
+                        "emergency": state.get("emergency", False),
                     }
                     with (session_dir / "labels.jsonl").open("a", encoding="utf-8") as labels:
                         labels.write(json.dumps(sample, separators=(",", ":")) + "\n")

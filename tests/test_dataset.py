@@ -34,6 +34,7 @@ class DatasetTests(unittest.TestCase):
         recorder.hz = 20
         try:
             recorder.start()
+            recorder.record_event("requested_drive", {"sequence": 9, "x": -0.5, "y": 1.0})
             time.sleep(0.25)
             recorder.stop()
             status = recorder.status()
@@ -42,6 +43,7 @@ class DatasetTests(unittest.TestCase):
             self.assertTrue((session / "labels.jsonl").exists())
             self.assertGreaterEqual(len(list((session / "frames").glob("*.jpg"))), 1)
             self.assertIn('"action":"left"', (session / "labels.jsonl").read_text())
+            self.assertIn('"sequence":9', (session / "events.jsonl").read_text())
         finally:
             recorder.shutdown()
 

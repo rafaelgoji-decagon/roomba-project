@@ -40,8 +40,17 @@ Cada vez que se
 pulsa **Comenzar a recolectar**, se crea `datasets/run-.../` con:
 
 - `frames/*.jpg`: imágenes sincronizadas a 5 Hz.
-- `labels.jsonl`: acción, velocidad de cada rueda, batería y timestamp por cuadro.
+- `labels.jsonl`: por cuadro, comando solicitado, movimiento ejecutado, estado de
+  seguridad y snapshot completo de sensores OI.
+- `events.jsonl`: todos los comandos del iPhone con secuencia y todos los cambios
+  efectivamente enviados a las ruedas, watchdogs y eventos de sesión.
 - `metadata.json`: configuración y datos de la sesión.
+
+El snapshot de sensores conserva tanto campos interpretados (bumps, cliffs,
+wall, wheel drops, distancia/ángulo, batería, encoders, light bumpers y
+corrientes cuando existen) como `raw_hex`, para poder reanalizar datos en el
+futuro. El controlador intenta el paquete OI extendido y cae automáticamente al
+grupo estándar en modelos que no lo soportan.
 
 Para cambiar cámara o frecuencia: `ROOMBA_CAMERA=/dev/video0`,
 `ROOMBA_DATA_HZ=5`, `ROOMBA_PREVIEW_FPS=4`. Si el navegador se desconecta, la

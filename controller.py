@@ -6,7 +6,7 @@ import os
 import struct
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
 
 import serial
 
@@ -38,6 +38,89 @@ def validate_battery_packet(
         raise ValueError("invalid battery packet: " + ", ".join(problems))
 
 
+def _u16(raw: bytes, offset: int) -> int:
+    return struct.unpack_from(">H", raw, offset)[0]
+
+
+def _s16(raw: bytes, offset: int) -> int:
+    return struct.unpack_from(">h", raw, offset)[0]
+
+
+def parse_sensor_packet(raw: bytes) -> dict[str, Any]:
+    """Parse OI packet group 6 (52 bytes) or group 100 (80 bytes)."""
+    if len(raw) not in (52, 80):
+        raise ValueError(f"invalid sensor packet length {len(raw)}")
+    state, mv, ma, temp, charge, capacity = (
+        raw[16], _u16(raw, 17), _s16(raw, 19), struct.unpack_from(">b", raw, 21)[0],
+        _u16(raw, 22), _u16(raw, 24),
+    )
+    validate_battery_packet(state, mv, temp, charge, capacity)
+    bumps = raw[0]
+    overcurrents = raw[7]
+    buttons = raw[11]
+    sources = raw[39]
+    data: dict[str, Any] = {
+        "packet_group": 100 if len(raw) == 80 else 6,
+        "raw_hex": raw.hex(),
+        "bumps_wheel_drops_raw": bumps,
+        "bumps": {"left": bool(bumps & 0x02), "right": bool(bumps & 0x01)},
+        "wheel_drops": {
+            "caster": bool(bumps & 0x10), "left": bool(bumps & 0x08), "right": bool(bumps & 0x04)
+        },
+        "wall": bool(raw[1]),
+        "cliff": {"left": bool(raw[2]), "front_left": bool(raw[3]), "front_right": bool(raw[4]), "right": bool(raw[5])},
+        "virtual_wall": bool(raw[6]),
+        "wheel_overcurrents_raw": overcurrents,
+        "wheel_overcurrents": {"left": bool(overcurrents & 0x10), "right": bool(overcurrents & 0x08)},
+        "dirt_detect": raw[8],
+        "infrared_omni": raw[10],
+        "buttons_raw": buttons,
+        "distance_mm_delta": _s16(raw, 12),
+        "angle_deg_delta": _s16(raw, 14),
+        "battery": {
+            "volts": round(mv / 1000, 2), "amps": round(ma / 1000, 3), "temp_c": temp,
+            "charge_mah": charge, "capacity_mah": capacity,
+            "percent": round(100 * charge / capacity, 1),
+            "charging": CHARGING_STATES[state],
+        },
+        "signals": {
+            "wall": _u16(raw, 26), "cliff_left": _u16(raw, 28),
+            "cliff_front_left": _u16(raw, 30), "cliff_front_right": _u16(raw, 32),
+            "cliff_right": _u16(raw, 34),
+        },
+        "charging_sources_raw": sources,
+        "charging_sources": {"internal": bool(sources & 0x01), "home_base": bool(sources & 0x02)},
+        "oi_mode": {0: "off", 1: "passive", 2: "safe", 3: "full"}.get(raw[40], f"unknown ({raw[40]})"),
+        "song_number": raw[41], "song_playing": bool(raw[42]), "stream_packets": raw[43],
+        "requested_oi": {
+            "velocity_mm_s": _s16(raw, 44), "radius_mm": _s16(raw, 46),
+            "right_velocity_mm_s": _s16(raw, 48), "left_velocity_mm_s": _s16(raw, 50),
+        },
+    }
+    if len(raw) == 80:
+        light = raw[56]
+        data["encoders"] = {"left": _u16(raw, 52), "right": _u16(raw, 54)}
+        data["light_bumper_raw"] = light
+        data["light_bumpers"] = {
+            "left": bool(light & 0x01), "front_left": bool(light & 0x02),
+            "center_left": bool(light & 0x04), "center_right": bool(light & 0x08),
+            "front_right": bool(light & 0x10), "right": bool(light & 0x20),
+        }
+        data["light_bumper_signals"] = {
+            "left": _u16(raw, 57), "front_left": _u16(raw, 59),
+            "center_left": _u16(raw, 61), "center_right": _u16(raw, 63),
+            "front_right": _u16(raw, 65), "right": _u16(raw, 67),
+        }
+        data["infrared_left"] = raw[69]
+        data["infrared_right"] = raw[70]
+        data["motor_currents_ma"] = {
+            "left": _s16(raw, 71), "right": _s16(raw, 73),
+            "main_brush": _s16(raw, 75), "side_brush": _s16(raw, 77),
+        }
+        data["stasis_raw"] = raw[79]
+    return data
+
+
 class SerialRobot:
     def __init__(self) -> None:
         self.port = os.getenv("ROOMBA_PORT") or find_port()
@@ -49,6 +132,7 @@ class SerialRobot:
         self.serial.write(bytes([128]))
         self.serial.flush()
         time.sleep(0.1)
+        self._sensor_group = 100
 
     def drive(self, left: int, right: int) -> None:
         left = max(-MAX_SPEED_MM_S, min(MAX_SPEED_MM_S, int(left)))
@@ -64,24 +148,31 @@ class SerialRobot:
         self.serial.write(bytes([128]))  # OI passive mode.
         self.serial.flush()
 
-    def battery(self) -> dict[str, Any]:
+    def sensors(self) -> dict[str, Any]:
         self.serial.reset_input_buffer()
-        self.serial.write(bytes([149, 6, 21, 22, 23, 24, 25, 26]))
+        expected = 80 if self._sensor_group == 100 else 52
+        self.serial.write(bytes([142, self._sensor_group]))
         self.serial.flush()
-        raw = self.serial.read(10)
-        if len(raw) != 10:
-            raise TimeoutError(f"expected 10 sensor bytes, received {len(raw)}")
-        state, mv, ma, temp, charge, capacity = struct.unpack(">BHhbHH", raw)
-        validate_battery_packet(state, mv, temp, charge, capacity)
-        return {
-            "volts": round(mv / 1000, 2),
-            "amps": round(ma / 1000, 3),
-            "temp_c": temp,
-            "charge_mah": charge,
-            "capacity_mah": capacity,
-            "percent": round(100 * charge / capacity, 1) if capacity else 0,
-            "charging": CHARGING_STATES.get(state, f"unknown ({state})"),
-        }
+        previous_timeout = self.serial.timeout
+        self.serial.timeout = 0.25
+        raw = self.serial.read(expected)
+        self.serial.timeout = previous_timeout
+        if len(raw) != expected and self._sensor_group == 100:
+            event("sensor", "Extended OI packet unavailable · falling back to group 6", "warn")
+            self._sensor_group = 6
+            self.serial.reset_input_buffer()
+            self.serial.write(bytes([142, 6]))
+            self.serial.flush()
+            self.serial.timeout = 0.25
+            raw = self.serial.read(52)
+            self.serial.timeout = previous_timeout
+            expected = 52
+        if len(raw) != expected:
+            raise TimeoutError(f"expected {expected} sensor bytes, received {len(raw)}")
+        return parse_sensor_packet(raw)
+
+    def battery(self) -> dict[str, Any]:
+        return self.sensors()["battery"]
 
     def close(self) -> None:
         try:
@@ -101,8 +192,8 @@ class MockRobot:
     def drive(self, left: int, right: int) -> None:
         self.left, self.right = left, right
 
-    def battery(self) -> dict[str, Any]:
-        return {
+    def sensors(self) -> dict[str, Any]:
+        battery = {
             "volts": 16.1,
             "amps": -0.08 if (self.left or self.right) else 0.0,
             "temp_c": 22,
@@ -111,6 +202,17 @@ class MockRobot:
             "percent": 53.8,
             "charging": "not charging",
         }
+        return {
+            "packet_group": "simulation", "raw_hex": "", "battery": battery,
+            "bumps": {"left": False, "right": False},
+            "wheel_drops": {"caster": False, "left": False, "right": False},
+            "cliff": {"left": False, "front_left": False, "front_right": False, "right": False},
+            "distance_mm_delta": 0, "angle_deg_delta": 0,
+            "requested_oi": {"left_velocity_mm_s": self.left, "right_velocity_mm_s": self.right},
+        }
+
+    def battery(self) -> dict[str, Any]:
+        return self.sensors()["battery"]
 
     def enable_control(self) -> None:
         pass
@@ -129,16 +231,28 @@ class RobotController:
         self._lock = threading.Lock()
         self._robot: SerialRobot | MockRobot | None = None
         self._desired = (0, 0)
+        self._executed = (0, 0)
+        self._requested_axes = (0.0, 0.0)
         self._last_command = 0.0
         self._armed = False
         self._emergency = False
         self._running = False
         self._thread: threading.Thread | None = None
         self._telemetry: dict[str, Any] = {}
+        self._sensors: dict[str, Any] = {}
         self._status = "starting"
         self._last_error = ""
         self._command_count = 0
         self._watchdog_count = 0
+        self._event_sink: Callable[[str, dict[str, Any]], None] | None = None
+
+    def set_event_sink(self, sink: Callable[[str, dict[str, Any]], None]) -> None:
+        self._event_sink = sink
+
+    def _data_event(self, kind: str, payload: dict[str, Any]) -> None:
+        sink = self._event_sink
+        if sink is not None:
+            sink(kind, payload)
 
     def start(self) -> None:
         event("system", "I/O controller online · motors locked", "ok")
@@ -181,6 +295,7 @@ class RobotController:
             was_armed = self._armed
             self._armed = False
             self._desired = (0, 0)
+            self._requested_axes = (0.0, 0.0)
             self._last_command = 0
         if was_armed:
             event("safety", "Control disarmed · returning to passive", "ok")
@@ -198,12 +313,14 @@ class RobotController:
         with self._lock:
             if self._armed and not self._emergency:
                 self._desired = (int(left / scale), int(right / scale))
+                self._requested_axes = (x, y)
                 self._last_command = time.monotonic()
                 self._command_count += 1
 
     def stop_motion(self) -> None:
         with self._lock:
             self._desired = (0, 0)
+            self._requested_axes = (0.0, 0.0)
             self._last_command = time.monotonic()
 
     def emergency_stop(self) -> None:
@@ -211,6 +328,7 @@ class RobotController:
             self._emergency = True
             self._armed = False
             self._desired = (0, 0)
+            self._requested_axes = (0.0, 0.0)
             self._last_command = 0
         event("e-stop", "EMERGENCY STOP · motors zeroed", "danger")
 
@@ -232,8 +350,14 @@ class RobotController:
                 "armed": self._armed,
                 "emergency": self._emergency,
                 "watchdog_ok": bool(self._armed and fresh),
-                "motors": {"left": self._desired[0], "right": self._desired[1]},
+                "motors": {"left": self._executed[0], "right": self._executed[1]},
+                "requested": {
+                    "x": self._requested_axes[0], "y": self._requested_axes[1],
+                    "left_mm_s": self._desired[0], "right_mm_s": self._desired[1],
+                },
+                "executed": {"left_mm_s": self._executed[0], "right_mm_s": self._executed[1]},
                 "battery": dict(self._telemetry),
+                "sensors": dict(self._sensors),
                 "error": self._last_error,
                 "max_speed": MAX_SPEED_MM_S,
                 "minimum_battery": MIN_BATTERY_PERCENT,
@@ -282,6 +406,7 @@ class RobotController:
                 target = self._desired if (self._armed and not self._emergency and fresh) else (0, 0)
                 if not fresh:
                     self._desired = (0, 0)
+                    self._requested_axes = (0.0, 0.0)
                 if self._armed and not fresh and not watchdog_fired:
                     watchdog_fired = True
                     self._watchdog_count += 1
@@ -291,6 +416,7 @@ class RobotController:
                         f"Command stream lost · {age_ms}ms · stop #{self._watchdog_count}",
                         "danger",
                     )
+                    self._data_event("watchdog_stop", {"age_ms": age_ms, "count": self._watchdog_count})
                 elif fresh:
                     watchdog_fired = False
             if self._robot is not None:
@@ -304,11 +430,21 @@ class RobotController:
                         self._robot.disable_control()
                         control_enabled = False
                         last_sent = (0, 0)
+                        with self._lock:
+                            self._executed = (0, 0)
+                        self._data_event("executed_drive", {"left_mm_s": 0, "right_mm_s": 0, "armed": False})
                     if target != last_sent:
                         self._robot.drive(*target)
                         last_sent = target
-                    if now - last_sensor >= 2 and target == (0, 0):
-                        self._telemetry = self._robot.battery()
+                        with self._lock:
+                            self._executed = target
+                        self._data_event(
+                            "executed_drive",
+                            {"left_mm_s": target[0], "right_mm_s": target[1], "armed": self._armed},
+                        )
+                    if now - last_sensor >= 0.2:
+                        self._sensors = self._robot.sensors()
+                        self._telemetry = dict(self._sensors["battery"])
                         signature = (
                             self._telemetry.get("percent"),
                             self._telemetry.get("charging"),
@@ -324,7 +460,7 @@ class RobotController:
                                 "ok" if self._telemetry["amps"] > 0 else "warn",
                             )
                             last_battery_signature = signature
-                        last_sensor = now
+                        last_sensor = time.monotonic()
                 except Exception as error:
                     try:
                         self._robot.close()
@@ -337,6 +473,8 @@ class RobotController:
                     self._last_error = str(error)
                     with self._lock:
                         self._telemetry = {}
+                        self._sensors = {}
+                        self._executed = (0, 0)
                     event("serial", f"Connection lost · {error}", "danger")
                     self.disarm()
             time.sleep(0.04)

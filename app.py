@@ -22,6 +22,7 @@ ROOT = Path(__file__).parent
 controller = RobotController()
 camera = Camera()
 recorder = DatasetRecorder(camera, controller.snapshot)
+controller.set_event_sink(recorder.record_event)
 control_lock = asyncio.Lock()
 
 
@@ -73,6 +74,7 @@ async def control_socket(socket: WebSocket) -> None:
         return
     async with control_lock:
         try:
+            recorder.record_event("client_connected", {"client": client})
             await socket.send_json({"type": "status", "data": full_status()})
             next_status = time.monotonic() + 0.5
             while True:
@@ -83,20 +85,32 @@ async def control_socket(socket: WebSocket) -> None:
                 if message is not None:
                     kind = message.get("type")
                     if kind == "arm":
+                        recorder.record_event("requested_arm", {"client": client})
                         controller.clear_emergency()
                         armed = controller.arm()
                         await socket.send_json({"type": "armed", "ok": armed})
                     elif kind == "drive":
-                        controller.command(float(message.get("x", 0)), float(message.get("y", 0)))
+                        x = float(message.get("x", 0))
+                        y = float(message.get("y", 0))
+                        recorder.record_event(
+                            "requested_drive",
+                            {"client": client, "sequence": message.get("sequence"), "x": x, "y": y},
+                        )
+                        controller.command(x, y)
                     elif kind == "stop":
+                        recorder.record_event("requested_stop", {"client": client, "sequence": message.get("sequence")})
                         controller.stop_motion()
                     elif kind == "emergency":
+                        recorder.record_event("requested_emergency", {"client": client})
                         controller.emergency_stop()
                     elif kind == "disarm":
+                        recorder.record_event("requested_disarm", {"client": client})
                         controller.disarm()
                     elif kind == "record_start":
                         recorder.start()
+                        recorder.record_event("recording_started", {"client": client})
                     elif kind == "record_stop":
+                        recorder.record_event("recording_stopped", {"client": client})
                         recorder.stop()
                 if time.monotonic() >= next_status:
                     await socket.send_json({"type": "status", "data": full_status()})
@@ -105,5 +119,6 @@ async def control_socket(socket: WebSocket) -> None:
             pass
         finally:
             controller.disarm()
+            recorder.record_event("client_disconnected", {"client": client})
             recorder.stop()
             event("client", f"Web control disconnected · {client}", "warn")
