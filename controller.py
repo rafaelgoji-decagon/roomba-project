@@ -15,7 +15,7 @@ from terminal_ui import event
 
 
 WATCHDOG_SECONDS = 0.40
-MAX_SPEED_MM_S = 180
+MAX_SPEED_MM_S = 500
 MIN_BATTERY_PERCENT = float(os.getenv("ROOMBA_MIN_BATTERY", "0"))
 
 

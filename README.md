@@ -4,7 +4,7 @@ Portal local para controlar una Roomba desde el navegador de un celular mediante
 
 ## Seguridad
 
-- Arranca desarmado y con velocidad limitada a 180 mm/s.
+- Arranca desarmado y con velocidad máxima OI de 500 mm/s.
 - Suelta el joystick para detenerse.
 - Un watchdog local detiene los motores si faltan comandos durante 400 ms.
 - Al cerrar/ocultar la página o perder el WebSocket, se desarma.
