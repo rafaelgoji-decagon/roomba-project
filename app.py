@@ -8,22 +8,29 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from controller import RobotController
+from camera import Camera
+from dataset import DatasetRecorder
 from terminal_ui import event
 
 
 ROOT = Path(__file__).parent
 controller = RobotController()
+camera = Camera()
+recorder = DatasetRecorder(camera, controller.snapshot)
 control_lock = asyncio.Lock()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     controller.start()
+    camera.start()
     yield
+    recorder.shutdown()
+    camera.stop()
     controller.shutdown()
 
 
@@ -38,7 +45,19 @@ async def index() -> FileResponse:
 
 @app.get("/api/status")
 async def status() -> dict:
-    return controller.snapshot()
+    return full_status()
+
+
+def full_status() -> dict:
+    state = controller.snapshot()
+    state["camera"] = camera.status()
+    state["dataset"] = recorder.status()
+    return state
+
+
+@app.get("/camera.mjpg")
+def camera_stream() -> StreamingResponse:
+    return StreamingResponse(camera.frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.websocket("/ws/control")
@@ -53,12 +72,12 @@ async def control_socket(socket: WebSocket) -> None:
         return
     async with control_lock:
         try:
-            await socket.send_json({"type": "status", "data": controller.snapshot()})
+            await socket.send_json({"type": "status", "data": full_status()})
             while True:
                 try:
                     message = await asyncio.wait_for(socket.receive_json(), timeout=0.25)
                 except asyncio.TimeoutError:
-                    await socket.send_json({"type": "status", "data": controller.snapshot()})
+                    await socket.send_json({"type": "status", "data": full_status()})
                     continue
                 kind = message.get("type")
                 if kind == "arm":
@@ -73,9 +92,14 @@ async def control_socket(socket: WebSocket) -> None:
                     controller.emergency_stop()
                 elif kind == "disarm":
                     controller.disarm()
-                await socket.send_json({"type": "status", "data": controller.snapshot()})
+                elif kind == "record_start":
+                    recorder.start()
+                elif kind == "record_stop":
+                    recorder.stop()
+                await socket.send_json({"type": "status", "data": full_status()})
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
             controller.disarm()
+            recorder.stop()
             event("client", f"Web control disconnected · {client}", "warn")

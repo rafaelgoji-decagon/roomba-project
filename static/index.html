@@ -23,15 +23,23 @@
         <article><span>MODO</span><strong id="mode">SEGURO</strong><small id="speed">Máx. — mm/s</small></article>
       </section>
 
+      <section class="camera-panel">
+        <img id="camera" src="/camera.mjpg" alt="Video en vivo de la cámara" />
+        <div id="cameraOffline" class="camera-offline">CÁMARA INICIANDO…</div>
+        <div class="camera-hud"><span id="recordLamp">● STANDBY</span><span id="sampleCount">0 MUESTRAS</span></div>
+      </section>
+
       <section class="control-panel">
         <div class="instructions">
           <p id="instruction">Esperando telemetría de batería</p>
           <div class="motor-readout"><span id="leftMotor">L 0</span><span id="rightMotor">R 0</span></div>
         </div>
-        <div id="joystick" class="joystick disabled" role="application" aria-label="Joystick de movimiento">
-          <div class="axis vertical"></div><div class="axis horizontal"></div>
-          <div id="stick" class="stick"><div></div></div>
-          <span class="north">AVANZAR</span><span class="south">REVERSA</span>
+        <div id="dpad" class="dpad disabled" role="group" aria-label="Control direccional">
+          <button class="drive up" data-x="0" data-y="1" aria-label="Avanzar">▲<small>AVANZAR</small></button>
+          <button class="drive left" data-x="-1" data-y="0" aria-label="Girar a la izquierda">◀</button>
+          <div class="dpad-center">D-PAD</div>
+          <button class="drive right" data-x="1" data-y="0" aria-label="Girar a la derecha">▶</button>
+          <button class="drive down" data-x="0" data-y="-1" aria-label="Reversa">▼<small>REVERSA</small></button>
         </div>
       </section>
 
@@ -39,7 +47,9 @@
         <button id="arm" class="arm">ARMAR CONTROL</button>
         <button id="emergency" class="emergency">PARADA</button>
       </section>
-      <p class="safety">Al soltar el joystick se detiene. Si la conexión se pierde, la Raspberry Pi corta los motores automáticamente.</p>
+      <button id="record" class="record">● COMENZAR A RECOLECTAR</button>
+      <p class="session" id="session">Sin sesión de datos</p>
+      <p class="safety">Mantén una flecha para moverte; al soltar se detiene. Si se pierde la conexión, la Raspberry Pi corta los motores y guarda la sesión.</p>
     </main>
     <script src="/static/app.js"></script>
   </body>

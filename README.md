@@ -2,6 +2,8 @@
 
 Portal local para controlar una Roomba desde el navegador de un celular mediante una Raspberry Pi.
 
+Incluye video MJPEG de la webcam, D-pad táctil y grabación de datasets supervisados.
+
 ## Seguridad
 
 - Arranca desarmado y con velocidad máxima OI de 500 mm/s.
@@ -30,6 +32,17 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 .venv/bin/python run.py
 ```
+
+Requiere `ffmpeg` para la webcam (`sudo apt install ffmpeg`). Cada vez que se
+pulsa **Comenzar a recolectar**, se crea `datasets/run-.../` con:
+
+- `frames/*.jpg`: imágenes sincronizadas a 5 Hz.
+- `labels.jsonl`: acción, velocidad de cada rueda, batería y timestamp por cuadro.
+- `metadata.json`: configuración y datos de la sesión.
+
+Para cambiar cámara o frecuencia: `ROOMBA_CAMERA=/dev/video0` y
+`ROOMBA_DATA_HZ=5`. Si el navegador se desconecta, la sesión se detiene y queda
+guardada.
 
 Normalmente el adaptador será `/dev/ttyUSB0`. Si hay más de uno:
 
