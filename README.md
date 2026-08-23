@@ -8,7 +8,7 @@ Incluye video MJPEG de la webcam, D-pad táctil y grabación de datasets supervi
 
 - Arranca desarmado y con velocidad máxima OI de 500 mm/s.
 - Suelta el joystick para detenerse.
-- Un watchdog local detiene los motores si faltan comandos durante 400 ms.
+- Un watchdog local detiene los motores si faltan comandos durante 750 ms.
 - Al cerrar/ocultar la página o perder el WebSocket, se desarma.
 - Solo un navegador puede tener la sesión de control.
 - La Roomba se opera en modo OI Safe, que conserva las protecciones integradas.
@@ -33,16 +33,19 @@ python3 -m venv .venv
 .venv/bin/python run.py
 ```
 
-Requiere `ffmpeg` para la webcam (`sudo apt install ffmpeg`). Cada vez que se
+Requiere `ffmpeg` para la webcam (`sudo apt install ffmpeg`). La captura local
+usa por defecto JPEG a color de 1280×720; el portal recibe solamente una vista
+previa 320×180 en escala de grises a 4 FPS para proteger el ancho de banda.
+Cada vez que se
 pulsa **Comenzar a recolectar**, se crea `datasets/run-.../` con:
 
 - `frames/*.jpg`: imágenes sincronizadas a 5 Hz.
 - `labels.jsonl`: acción, velocidad de cada rueda, batería y timestamp por cuadro.
 - `metadata.json`: configuración y datos de la sesión.
 
-Para cambiar cámara o frecuencia: `ROOMBA_CAMERA=/dev/video0` y
-`ROOMBA_DATA_HZ=5`. Si el navegador se desconecta, la sesión se detiene y queda
-guardada.
+Para cambiar cámara o frecuencia: `ROOMBA_CAMERA=/dev/video0`,
+`ROOMBA_DATA_HZ=5`, `ROOMBA_PREVIEW_FPS=4`. Si el navegador se desconecta, la
+sesión se detiene y queda guardada.
 
 Normalmente el adaptador será `/dev/ttyUSB0`. Si hay más de uno:
 

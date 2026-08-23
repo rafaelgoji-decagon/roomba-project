@@ -29,7 +29,7 @@ def banner(host: str, port: int) -> None:
         "║          ROOMBA // MOBILE CONTROL DECK          ║\n"
         "╠══════════════════════════════════════════════════╣\n"
         f"║  LISTEN  {host}:{port:<34}║\n"
-        "║  SAFETY  PASSIVE · OI SAFE · 400ms WATCHDOG    ║\n"
+        "║  SAFETY  PASSIVE · OI SAFE · 750ms WATCHDOG    ║\n"
         "╚══════════════════════════════════════════════════╝"
     )
     with _lock:

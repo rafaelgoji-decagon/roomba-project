@@ -6,7 +6,10 @@ import os
 import subprocess
 import threading
 import time
+from io import BytesIO
 from typing import Iterator
+
+from PIL import Image
 
 from terminal_ui import event
 
@@ -14,12 +17,18 @@ from terminal_ui import event
 class Camera:
     def __init__(self) -> None:
         self.device = os.getenv("ROOMBA_CAMERA", "/dev/video0")
-        self.width = int(os.getenv("ROOMBA_CAMERA_WIDTH", "640"))
-        self.height = int(os.getenv("ROOMBA_CAMERA_HEIGHT", "480"))
-        self.fps = int(os.getenv("ROOMBA_CAMERA_FPS", "10"))
+        self.width = int(os.getenv("ROOMBA_CAMERA_WIDTH", "1280"))
+        self.height = int(os.getenv("ROOMBA_CAMERA_HEIGHT", "720"))
+        self.fps = int(os.getenv("ROOMBA_CAMERA_FPS", "15"))
+        self.preview_width = int(os.getenv("ROOMBA_PREVIEW_WIDTH", "320"))
+        self.preview_height = int(os.getenv("ROOMBA_PREVIEW_HEIGHT", "180"))
+        self.preview_fps = float(os.getenv("ROOMBA_PREVIEW_FPS", "4"))
+        self.preview_quality = int(os.getenv("ROOMBA_PREVIEW_QUALITY", "30"))
         self._condition = threading.Condition()
         self._frame: bytes | None = None
         self._sequence = 0
+        self._preview: bytes | None = None
+        self._preview_sequence = 0
         self._running = False
         self._thread: threading.Thread | None = None
         self._process: subprocess.Popen[bytes] | None = None
@@ -47,9 +56,14 @@ class Camera:
             return {
                 "online": self._frame is not None,
                 "device": self.device,
-                "width": self.width,
-                "height": self.height,
-                "fps": self.fps,
+                "capture": {"width": self.width, "height": self.height, "fps": self.fps, "color": True},
+                "preview": {
+                    "width": self.preview_width,
+                    "height": self.preview_height,
+                    "fps": self.preview_fps,
+                    "grayscale": True,
+                    "jpeg_quality": self.preview_quality,
+                },
                 "error": self._error,
             }
 
@@ -62,11 +76,11 @@ class Camera:
         while self._running:
             with self._condition:
                 self._condition.wait_for(
-                    lambda: self._sequence != seen or not self._running, timeout=2
+                    lambda: self._preview_sequence != seen or not self._running, timeout=2
                 )
                 if not self._running:
                     return
-                seen, frame = self._sequence, self._frame
+                seen, frame = self._preview_sequence, self._preview
             if frame:
                 yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
 
@@ -85,6 +99,7 @@ class Camera:
         ]
 
     def _loop(self) -> None:
+        last_preview = float("-inf")
         while self._running:
             try:
                 event("camera", f"Opening {self.device} · {self.width}x{self.height}@{self.fps}")
@@ -113,6 +128,14 @@ class Camera:
                             self._sequence += 1
                             self._error = ""
                             self._condition.notify_all()
+                        now = time.monotonic()
+                        if now - last_preview >= 1 / max(1, self.preview_fps):
+                            preview = self._make_preview(frame)
+                            with self._condition:
+                                self._preview = preview
+                                self._preview_sequence += 1
+                                self._condition.notify_all()
+                            last_preview = now
             except Exception as error:
                 with self._condition:
                     self._frame = None
@@ -126,3 +149,11 @@ class Camera:
             if self._running:
                 time.sleep(2)
         event("camera", "Capture offline", "ok")
+
+    def _make_preview(self, frame: bytes) -> bytes:
+        with Image.open(BytesIO(frame)) as image:
+            image = image.convert("L")
+            image.thumbnail((self.preview_width, self.preview_height), Image.Resampling.LANCZOS)
+            output = BytesIO()
+            image.save(output, format="JPEG", quality=self.preview_quality, optimize=True)
+            return output.getvalue()

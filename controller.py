@@ -14,7 +14,7 @@ from roomba import CHARGING_STATES, find_port
 from terminal_ui import event
 
 
-WATCHDOG_SECONDS = 0.40
+WATCHDOG_SECONDS = 0.75
 MAX_SPEED_MM_S = 500
 MIN_BATTERY_PERCENT = float(os.getenv("ROOMBA_MIN_BATTERY", "0"))
 
@@ -137,6 +137,8 @@ class RobotController:
         self._telemetry: dict[str, Any] = {}
         self._status = "starting"
         self._last_error = ""
+        self._command_count = 0
+        self._watchdog_count = 0
 
     def start(self) -> None:
         event("system", "I/O controller online · motors locked", "ok")
@@ -197,6 +199,7 @@ class RobotController:
             if self._armed and not self._emergency:
                 self._desired = (int(left / scale), int(right / scale))
                 self._last_command = time.monotonic()
+                self._command_count += 1
 
     def stop_motion(self) -> None:
         with self._lock:
@@ -235,6 +238,16 @@ class RobotController:
                 "max_speed": MAX_SPEED_MM_S,
                 "minimum_battery": MIN_BATTERY_PERCENT,
                 "battery_ok": battery_ok,
+                "control": {
+                    "commands_received": self._command_count,
+                    "watchdog_stops": self._watchdog_count,
+                    "last_command_age_ms": (
+                        round((time.monotonic() - self._last_command) * 1000)
+                        if self._last_command
+                        else None
+                    ),
+                    "watchdog_ms": round(WATCHDOG_SECONDS * 1000),
+                },
             }
 
     def _connect(self) -> None:
@@ -271,7 +284,13 @@ class RobotController:
                     self._desired = (0, 0)
                 if self._armed and not fresh and not watchdog_fired:
                     watchdog_fired = True
-                    event("watchdog", "Command stream lost · motors zeroed", "danger")
+                    self._watchdog_count += 1
+                    age_ms = round((now - self._last_command) * 1000)
+                    event(
+                        "watchdog",
+                        f"Command stream lost · {age_ms}ms · stop #{self._watchdog_count}",
+                        "danger",
+                    )
                 elif fresh:
                     watchdog_fired = False
             if self._robot is not None:

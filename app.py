@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator
@@ -73,30 +74,33 @@ async def control_socket(socket: WebSocket) -> None:
     async with control_lock:
         try:
             await socket.send_json({"type": "status", "data": full_status()})
+            next_status = time.monotonic() + 0.5
             while True:
                 try:
-                    message = await asyncio.wait_for(socket.receive_json(), timeout=0.25)
+                    message = await asyncio.wait_for(socket.receive_json(), timeout=0.10)
                 except asyncio.TimeoutError:
+                    message = None
+                if message is not None:
+                    kind = message.get("type")
+                    if kind == "arm":
+                        controller.clear_emergency()
+                        armed = controller.arm()
+                        await socket.send_json({"type": "armed", "ok": armed})
+                    elif kind == "drive":
+                        controller.command(float(message.get("x", 0)), float(message.get("y", 0)))
+                    elif kind == "stop":
+                        controller.stop_motion()
+                    elif kind == "emergency":
+                        controller.emergency_stop()
+                    elif kind == "disarm":
+                        controller.disarm()
+                    elif kind == "record_start":
+                        recorder.start()
+                    elif kind == "record_stop":
+                        recorder.stop()
+                if time.monotonic() >= next_status:
                     await socket.send_json({"type": "status", "data": full_status()})
-                    continue
-                kind = message.get("type")
-                if kind == "arm":
-                    controller.clear_emergency()
-                    armed = controller.arm()
-                    await socket.send_json({"type": "armed", "ok": armed})
-                elif kind == "drive":
-                    controller.command(float(message.get("x", 0)), float(message.get("y", 0)))
-                elif kind == "stop":
-                    controller.stop_motion()
-                elif kind == "emergency":
-                    controller.emergency_stop()
-                elif kind == "disarm":
-                    controller.disarm()
-                elif kind == "record_start":
-                    recorder.start()
-                elif kind == "record_stop":
-                    recorder.stop()
-                await socket.send_json({"type": "status", "data": full_status()})
+                    next_status = time.monotonic() + 0.5
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
