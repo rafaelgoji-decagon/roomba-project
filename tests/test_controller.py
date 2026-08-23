@@ -4,7 +4,7 @@ import unittest
 
 os.environ["ROOMBA_MOCK"] = "1"
 
-from controller import RobotController, WATCHDOG_SECONDS
+from controller import RobotController, WATCHDOG_SECONDS, validate_battery_packet
 
 
 class ControllerSafetyTests(unittest.TestCase):
@@ -41,6 +41,11 @@ class ControllerSafetyTests(unittest.TestCase):
             self.controller._telemetry["percent"] = 3.0
         self.assertTrue(self.controller.arm())
         self.assertTrue(self.controller.snapshot()["battery_ok"])
+
+    def test_corrupt_battery_packets_are_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid battery packet"):
+            validate_battery_packet(254, 65280, -2, 65278, 65278)
+        validate_battery_packet(0, 16170, 21, 2522, 2697)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,25 @@ MAX_SPEED_MM_S = 500
 MIN_BATTERY_PERCENT = float(os.getenv("ROOMBA_MIN_BATTERY", "0"))
 
 
+def validate_battery_packet(
+    state: int, millivolts: int, temp_c: int, charge_mah: int, capacity_mah: int
+) -> None:
+    """Reject corrupt serial packets before they can unlock motor control."""
+    problems = []
+    if state not in CHARGING_STATES:
+        problems.append(f"charging state {state}")
+    if not 8000 <= millivolts <= 22000:
+        problems.append(f"voltage {millivolts}mV")
+    if not -20 <= temp_c <= 80:
+        problems.append(f"temperature {temp_c}C")
+    if not 100 <= capacity_mah <= 10000:
+        problems.append(f"capacity {capacity_mah}mAh")
+    if not 0 <= charge_mah <= capacity_mah:
+        problems.append(f"charge {charge_mah}/{capacity_mah}mAh")
+    if problems:
+        raise ValueError("invalid battery packet: " + ", ".join(problems))
+
+
 class SerialRobot:
     def __init__(self) -> None:
         self.port = os.getenv("ROOMBA_PORT") or find_port()
@@ -53,6 +72,7 @@ class SerialRobot:
         if len(raw) != 10:
             raise TimeoutError(f"expected 10 sensor bytes, received {len(raw)}")
         state, mv, ma, temp, charge, capacity = struct.unpack(">BHhbHH", raw)
+        validate_battery_packet(state, mv, temp, charge, capacity)
         return {
             "volts": round(mv / 1000, 2),
             "amps": round(ma / 1000, 3),
@@ -199,7 +219,11 @@ class RobotController:
         with self._lock:
             fresh = time.monotonic() - self._last_command <= WATCHDOG_SECONDS
             battery_percent = self._telemetry.get("percent")
-            battery_ok = battery_percent is not None and battery_percent >= MIN_BATTERY_PERCENT
+            battery_ok = (
+                self._robot is not None
+                and battery_percent is not None
+                and battery_percent >= MIN_BATTERY_PERCENT
+            )
             return {
                 "status": self._status,
                 "armed": self._armed,
@@ -292,6 +316,8 @@ class RobotController:
                     last_sent = None
                     self._status = "disconnected"
                     self._last_error = str(error)
+                    with self._lock:
+                        self._telemetry = {}
                     event("serial", f"Connection lost · {error}", "danger")
                     self.disarm()
             time.sleep(0.04)
