@@ -1,4 +1,6 @@
 fastapi==0.128.8
 Pillow>=10,<13
+numpy>=2,<2.3
+opencv-contrib-python-headless==4.12.0.88
 pyserial==3.5
 uvicorn[standard]==0.39.0

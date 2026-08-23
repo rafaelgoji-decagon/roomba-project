@@ -92,6 +92,11 @@ class AutonomousRunner:
         event("auto", "Route ready · waiting for Play confirmation", "warn")
         return True
 
+    def reject(self, reason: str) -> None:
+        self.cancel("readiness rejected")
+        self.controller.disarm()
+        self._set_state("fault", reason)
+
     def start(self) -> bool:
         with self._lock:
             allowed = self._state in {"ready", "paused"}

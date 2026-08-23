@@ -16,6 +16,7 @@ from controller import RobotController
 from camera import Camera
 from dataset import DatasetRecorder
 from autonomous import AutonomousRunner
+from origin_calibration import OriginCalibration
 from terminal_ui import event
 
 
@@ -25,6 +26,7 @@ camera = Camera()
 recorder = DatasetRecorder(camera, controller.snapshot)
 controller.set_event_sink(recorder.record_event)
 runner = AutonomousRunner(controller, ROOT / "training" / "artifacts" / "route_reference.json", recorder.record_event)
+origin = OriginCalibration(camera.latest, ROOT / "calibration" / "origin.json")
 control_lock = asyncio.Lock()
 
 
@@ -32,8 +34,10 @@ control_lock = asyncio.Lock()
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     controller.start()
     camera.start()
+    origin.start()
     yield
     runner.cancel("server shutdown")
+    origin.stop()
     recorder.shutdown()
     camera.stop()
     controller.shutdown()
@@ -58,6 +62,7 @@ def full_status() -> dict:
     state["camera"] = camera.status()
     state["dataset"] = recorder.status()
     state["autonomous"] = runner.status()
+    state["origin"] = origin.status()
     return state
 
 
@@ -126,8 +131,18 @@ async def control_socket(socket: WebSocket) -> None:
                         recorder.stop()
                     elif kind == "auto_ready":
                         recorder.record_event("requested_autonomous_ready", {"client": client})
-                        runner.ready()
+                        origin_state = origin.status()
+                        if not origin_state["target_saved"]:
+                            runner.reject("Guarda primero el origen visual")
+                        elif not (origin_state.get("comparison") or {}).get("aligned"):
+                            runner.reject("La pose no coincide con el origen guardado")
+                        else:
+                            runner.ready()
                     elif kind == "auto_play":
+                        origin_state = origin.status()
+                        if not (origin_state.get("comparison") or {}).get("aligned"):
+                            runner.reject("La pose visual cambió; vuelve a preparar la ruta")
+                            continue
                         recorder.start(
                             "autonomous",
                             {
@@ -146,6 +161,11 @@ async def control_socket(socket: WebSocket) -> None:
                         recorder.record_event("requested_autonomous_cancel", {"client": client})
                         runner.cancel("user cancelled")
                         recorder.stop()
+                    elif kind == "origin_capture":
+                        recorder.record_event("requested_origin_capture", {"client": client})
+                        runner.cancel("origin calibration requested")
+                        controller.disarm()
+                        origin.capture()
                 auto_state = runner.status()["state"]
                 if previous_auto_state == "running" and auto_state in {"complete", "fault", "idle"}:
                     recorder.stop()
