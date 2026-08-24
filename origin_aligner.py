@@ -145,14 +145,33 @@ class OriginAligner:
                 dx = float(comparison["offset_x_percent"]) / 100
                 scale_error = 1 - float(comparison["scale_ratio"])
                 angle = float(comparison["angle_error_deg"])
-                turn = self._clamp(dx * 180 + angle * 3, 40)
-                linear = self._clamp(scale_error * 90, 45)
-                if abs(dx) > 0.025 or abs(angle) > 2.0:
+                if abs(scale_error) > 0.025:
+                    # Establish depth first. Equal wheel speeds prevent a large
+                    # horizontal error from trapping the robot in a spin.
+                    linear = self._clamp(scale_error * 90, 45)
+                    if abs(linear) < 18:
+                        linear = 18 if linear > 0 else -18
+                    turn = 0
+                    phase = "Ajustando distancia al origen"
+                elif abs(dx) > 0.018:
+                    # A differential-drive base cannot strafe. A short forward
+                    # arc changes lateral position; later cycles restore depth
+                    # and heading from the newly observed pose.
+                    linear = 25
+                    turn = self._clamp(dx * 180, 28)
+                    if abs(turn) < 14:
+                        turn = 14 if turn > 0 else -14
+                    phase = "Corrigiendo posición lateral con un arco"
+                elif abs(angle) > 1.0:
                     linear = 0
-                if 0 < abs(turn) < 16:
-                    turn = 16 if turn > 0 else -16
-                if 0 < abs(linear) < 18:
-                    linear = 18 if linear > 0 else -18
+                    turn = self._clamp(angle * 3, 32)
+                    if abs(turn) < 14:
+                        turn = 14 if turn > 0 else -14
+                    phase = "Corrigiendo orientación final"
+                else:
+                    linear = self._clamp(scale_error * 70, 25)
+                    turn = self._clamp(dx * 120 + angle * 2, 22)
+                    phase = "Haciendo ajuste fino"
                 left, right = linear + turn, linear - turn
                 error_size = max(abs(dx) / 0.015, abs(scale_error) / 0.04, abs(angle) / 1.5)
                 pulse_seconds = 0.25 if error_size < 2 else (0.40 if error_size < 5 else 0.55)
@@ -164,7 +183,8 @@ class OriginAligner:
                 linear = -18 if abs(turn) < 1 else 0
                 left, right = linear + turn, linear - turn
                 pulse_seconds = 0.35
-            self._set("running", "Moviendo un paso corto")
+                phase = "Buscando el tablero completo"
+            self._set("running", phase)
             if not self._pulse(left, right, pulse_seconds):
                 return
             last_motion = (left, right)

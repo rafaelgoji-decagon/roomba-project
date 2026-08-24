@@ -57,6 +57,8 @@ class OriginAlignerTests(unittest.TestCase):
             time.sleep(0.05)
         moving_indexes = [i for i, command in enumerate(controller.commands) if command != (0, 0)]
         self.assertTrue(moving_indexes)
+        first_left, first_right = controller.commands[moving_indexes[0]]
+        self.assertEqual(first_left, first_right)
         self.assertTrue(any(command == (0, 0) for command in controller.commands[moving_indexes[-1] + 1:]))
 
     def test_hazard_blocks_start(self):
