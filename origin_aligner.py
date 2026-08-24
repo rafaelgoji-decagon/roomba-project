@@ -11,9 +11,10 @@ from terminal_ui import event
 
 ALIGN_MAX_SPEED_MM_S = 50
 ALIGN_CONTROL_HZ = 5
-ALIGN_TIMEOUT_SECONDS = 45
-ALIGN_STABLE_READINGS = 8
-MARKER_LOSS_SECONDS = 1.5
+ALIGN_TIMEOUT_SECONDS = 90
+ALIGN_STABLE_READINGS = 5
+SETTLE_SECONDS = 1.0
+MAX_RECOVERY_ATTEMPTS = 2
 
 
 class OriginAligner:
@@ -95,9 +96,11 @@ class OriginAligner:
         return max(-limit, min(limit, value))
 
     def _run(self) -> None:
-        began = last_seen = time.monotonic()
+        began = time.monotonic()
         stable = 0
         stable_sequence = None
+        last_motion: tuple[float, float] | None = None
+        recovery_attempts = 0
         while not self._stop.wait(1 / ALIGN_CONTROL_HZ):
             now = time.monotonic()
             robot = self.controller.snapshot()
@@ -113,12 +116,17 @@ class OriginAligner:
             origin = self.origin_status()
             marker_ids = origin.get("marker_ids", [])
             if not marker_ids:
-                self.controller.command_wheels(0, 0, ALIGN_MAX_SPEED_MM_S)
-                if now - last_seen > MARKER_LOSS_SECONDS:
-                    self._fail("Se perdió el marcador")
+                if last_motion is None or recovery_attempts >= MAX_RECOVERY_ATTEMPTS:
+                    self._fail("Se perdió el marcador; coloca otra vez un código dentro del encuadre")
+                    return
+                recovery_attempts += 1
+                self._set("running", "Recuperando el marcador")
+                if not self._pulse(-last_motion[0], -last_motion[1], 0.30):
+                    return
+                if not self._settle():
                     return
                 continue
-            last_seen = now
+            recovery_attempts = 0
             comparison = origin.get("comparison")
             if comparison and comparison.get("aligned"):
                 sequence = origin.get("detection", {}).get("frame_sequence")
@@ -146,6 +154,8 @@ class OriginAligner:
                 if 0 < abs(linear) < 18:
                     linear = 18 if linear > 0 else -18
                 left, right = linear + turn, linear - turn
+                error_size = max(abs(dx) / 0.015, abs(scale_error) / 0.04, abs(angle) / 1.5)
+                pulse_seconds = 0.25 if error_size < 2 else (0.40 if error_size < 5 else 0.55)
             else:
                 center_x = float(origin.get("detection", {}).get("partial_center_x", 0.5))
                 turn = self._clamp((center_x - 0.5) * 100, 35)
@@ -153,6 +163,36 @@ class OriginAligner:
                     turn = 18 if turn > 0 else -18
                 linear = -18 if abs(turn) < 1 else 0
                 left, right = linear + turn, linear - turn
+                pulse_seconds = 0.35
+            self._set("running", "Moviendo un paso corto")
+            if not self._pulse(left, right, pulse_seconds):
+                return
+            last_motion = (left, right)
+            if not self._settle():
+                return
+
+    def _pulse(self, left: float, right: float, seconds: float) -> bool:
+        return self._hold(left, right, seconds)
+
+    def _settle(self) -> bool:
+        self._set("running", "Esperando que la cámara deje de vibrar")
+        return self._hold(0, 0, SETTLE_SECONDS)
+
+    def _hold(self, left: float, right: float, seconds: float) -> bool:
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if self._stop.is_set():
+                self.controller.stop_motion()
+                return False
+            robot = self.controller.snapshot()
+            if robot.get("emergency") or self._hazard(robot.get("sensors", {})):
+                self._fail("Bumper, cliff o wheel-drop activo")
+                return False
+            if robot.get("status") not in {"connected", "simulated"} or not robot.get("battery_ok"):
+                self._fail("Se perdió la telemetría serial")
+                return False
             if not self.controller.command_wheels(left, right, ALIGN_MAX_SPEED_MM_S):
                 self._fail("El control de motores quedó desactivado")
-                return
+                return False
+            self._stop.wait(min(0.10, max(0, deadline - time.monotonic())))
+        return True
