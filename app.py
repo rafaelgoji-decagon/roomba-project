@@ -18,6 +18,7 @@ from camera import Camera
 from dataset import DatasetRecorder
 from autonomous import AutonomousRunner
 from origin_calibration import OriginCalibration
+from origin_aligner import OriginAligner
 from terminal_ui import event
 
 
@@ -34,6 +35,7 @@ if LEGACY_ORIGIN.exists() and not NOGAL_ORIGIN.exists():
     ORIGIN_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copy2(LEGACY_ORIGIN, NOGAL_ORIGIN)
 origin = OriginCalibration(camera.latest, NOGAL_ORIGIN, "nogal")
+aligner = OriginAligner(controller, origin.status)
 control_lock = asyncio.Lock()
 ROUTES = {
     "nogal": {"id": "nogal", "name": "Nogal", "trained": True},
@@ -48,6 +50,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     origin.start()
     yield
     runner.cancel("server shutdown")
+    aligner.cancel("server shutdown")
     origin.stop()
     recorder.shutdown()
     camera.stop()
@@ -74,6 +77,7 @@ def full_status() -> dict:
     state["dataset"] = recorder.status()
     state["autonomous"] = runner.status()
     state["origin"] = origin.status()
+    state["origin"]["alignment"] = aligner.status()
     state["routes"] = list(ROUTES.values())
     return state
 
@@ -107,6 +111,7 @@ async def control_socket(socket: WebSocket) -> None:
                 if message is not None:
                     kind = message.get("type")
                     if kind == "arm":
+                        aligner.cancel("manual control requested")
                         runner.cancel("manual control requested")
                         recorder.record_event("requested_arm", {"client": client})
                         controller.clear_emergency()
@@ -131,11 +136,15 @@ async def control_socket(socket: WebSocket) -> None:
                     elif kind == "emergency":
                         recorder.record_event("requested_emergency", {"client": client})
                         runner.emergency_stop()
+                        aligner.emergency_stop()
                     elif kind == "disarm":
                         recorder.record_event("requested_disarm", {"client": client})
                         runner.cancel("control disarmed")
                         controller.disarm()
                     elif kind == "record_start":
+                        if aligner.status()["state"] == "running":
+                            await socket.send_json({"type": "error", "message": "Detén primero la alineación al origen"})
+                            continue
                         route_id = str(message.get("route_id", "")).lower()
                         route = ROUTES.get(route_id)
                         if route is None:
@@ -155,15 +164,21 @@ async def control_socket(socket: WebSocket) -> None:
                         if route is None:
                             await socket.send_json({"type": "error", "message": "Selecciona una ruta válida"})
                             continue
-                        if recorder.status()["recording"] or runner.status()["state"] == "running":
+                        if (
+                            recorder.status()["recording"]
+                            or runner.status()["state"] == "running"
+                            or aligner.status()["state"] == "running"
+                        ):
                             await socket.send_json({"type": "error", "message": "No puedes cambiar de ruta en movimiento"})
                             continue
                         runner.cancel("route changed")
+                        aligner.cancel("route changed")
                         origin.select_route(route_id, ORIGIN_DIR / f"{route_id}.json")
                     elif kind == "record_stop":
                         recorder.record_event("recording_stopped", {"client": client})
                         recorder.stop()
                     elif kind == "auto_ready":
+                        aligner.cancel("autonomous route requested")
                         recorder.record_event("requested_autonomous_ready", {"client": client})
                         origin_state = origin.status()
                         route = ROUTES[origin_state["route_id"]]
@@ -205,8 +220,15 @@ async def control_socket(socket: WebSocket) -> None:
                     elif kind == "origin_capture":
                         recorder.record_event("requested_origin_capture", {"client": client})
                         runner.cancel("origin calibration requested")
+                        aligner.cancel("origin calibration requested")
                         controller.disarm()
                         origin.capture()
+                    elif kind == "origin_align":
+                        runner.cancel("origin alignment requested")
+                        recorder.stop()
+                        aligner.start()
+                    elif kind == "origin_align_cancel":
+                        aligner.cancel("Alineación cancelada")
                 auto_state = runner.status()["state"]
                 if previous_auto_state == "running" and auto_state in {"complete", "fault", "idle"}:
                     recorder.stop()
@@ -218,6 +240,7 @@ async def control_socket(socket: WebSocket) -> None:
             pass
         finally:
             runner.cancel("control connection lost")
+            aligner.cancel("control connection lost")
             controller.disarm()
             recorder.record_event("client_disconnected", {"client": client})
             recorder.stop()

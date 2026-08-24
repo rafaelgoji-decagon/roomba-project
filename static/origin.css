@@ -15,4 +15,5 @@
 .origin-metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:9px 0; }
 .origin-metrics span { padding:7px; background:#fff; border-radius:8px; color:var(--muted); font-size:9px; }
 .origin-metrics b { display:block; margin-top:3px; color:var(--text); font-size:11px; }
-.origin-wizard > button { margin-top:10px; min-height:45px; font-size:14px; }
+.origin-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+.origin-actions button { min-height:45px; font-size:14px; }

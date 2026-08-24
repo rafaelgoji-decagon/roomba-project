@@ -121,6 +121,7 @@ class OriginCalibration:
                 self._last_sequence = sequence
                 try:
                     detection = self._detect(frame)
+                    detection["frame_sequence"] = sequence
                     with self._lock:
                         self._detection = detection
                         capturing = self._state == "capturing"
@@ -149,7 +150,12 @@ class OriginCalibration:
                     detected[marker_id] = marker_corners.reshape(4, 2).astype(float).tolist()
         marker_ids = sorted(detected)
         if marker_ids != list(EXPECTED_IDS):
-            return {"visible": False, "marker_ids": marker_ids}
+            partial = np.asarray([point for marker_id in marker_ids for point in detected[marker_id]], dtype=float)
+            return {
+                "visible": False,
+                "marker_ids": marker_ids,
+                "partial_center_x": round(float(partial[:, 0].mean() / gray.shape[1]), 6) if marker_ids else None,
+            }
         ordered = np.asarray([point for marker_id in EXPECTED_IDS for point in detected[marker_id]], dtype=float)
         height, width = gray.shape
         minimum = ordered.min(axis=0)
