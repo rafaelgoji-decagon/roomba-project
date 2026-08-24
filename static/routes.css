@@ -2,6 +2,16 @@
   margin: 2px 0 12px;
 }
 
+.global-route {
+  margin: -2px 0 0;
+  padding: 12px;
+  border: 1px solid #e6e6ea;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .82);
+  box-shadow: 0 2px 12px #0000000a;
+  backdrop-filter: blur(18px);
+}
+
 .route-picker > span {
   display: block;
   margin-bottom: 7px;
@@ -43,4 +53,10 @@
   margin-top: 7px;
   color: var(--muted);
   font-size: 11px;
+}
+
+@media (orientation: landscape) and (max-height: 650px) {
+  .global-route {
+    grid-column: 1 / -1;
+  }
 }
