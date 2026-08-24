@@ -28,6 +28,10 @@ controller.set_event_sink(recorder.record_event)
 runner = AutonomousRunner(controller, ROOT / "training" / "artifacts" / "route_reference.json", recorder.record_event)
 origin = OriginCalibration(camera.latest, ROOT / "calibration" / "origin.json")
 control_lock = asyncio.Lock()
+ROUTES = {
+    "nogal": {"id": "nogal", "name": "Nogal", "trained": True},
+    "sopi": {"id": "sopi", "name": "Sopi", "trained": False},
+}
 
 
 @asynccontextmanager
@@ -63,6 +67,7 @@ def full_status() -> dict:
     state["dataset"] = recorder.status()
     state["autonomous"] = runner.status()
     state["origin"] = origin.status()
+    state["routes"] = list(ROUTES.values())
     return state
 
 
@@ -124,8 +129,19 @@ async def control_socket(socket: WebSocket) -> None:
                         runner.cancel("control disarmed")
                         controller.disarm()
                     elif kind == "record_start":
-                        recorder.start("manual")
-                        recorder.record_event("recording_started", {"client": client})
+                        route_id = str(message.get("route_id", "")).lower()
+                        route = ROUTES.get(route_id)
+                        if route is None:
+                            await socket.send_json({"type": "error", "message": "Selecciona una ruta válida"})
+                            continue
+                        recorder.start(
+                            "manual",
+                            {"route_id": route["id"], "route_name": route["name"]},
+                        )
+                        recorder.record_event(
+                            "recording_started",
+                            {"client": client, "route_id": route["id"], "route_name": route["name"]},
+                        )
                     elif kind == "record_stop":
                         recorder.record_event("recording_stopped", {"client": client})
                         recorder.stop()

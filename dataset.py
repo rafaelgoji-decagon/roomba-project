@@ -38,8 +38,11 @@ class DatasetRecorder:
         self._session_id: str | None = None
         self._session_dir: Path | None = None
         self._started_at: str | None = None
+        self._route_id: str | None = None
+        self._route_name: str | None = None
         self._samples = 0
         self._last_error = ""
+        self._route_counts = self._load_route_counts()
         self._running = True
         self._thread = threading.Thread(target=self._loop, name="dataset", daemon=True)
         self._thread.start()
@@ -63,6 +66,8 @@ class DatasetRecorder:
             }
             if metadata_extra:
                 metadata.update(metadata_extra)
+            self._route_id = metadata.get("route_id")
+            self._route_name = metadata.get("route_name")
             (self._session_dir / "metadata.json").write_text(
                 json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
             )
@@ -95,7 +100,10 @@ class DatasetRecorder:
             was_active = self._active
             session_id = self._session_id
             samples = self._samples
+            route_id = self._route_id
             self._active = False
+            if was_active and route_id:
+                self._route_counts[route_id] = self._route_counts.get(route_id, 0) + 1
         if was_active:
             event("dataset", f"SAVED · {session_id} · {samples} samples", "ok")
 
@@ -110,9 +118,26 @@ class DatasetRecorder:
                 "recording": self._active,
                 "session_id": self._session_id,
                 "started_at": self._started_at,
+                "route_id": self._route_id,
+                "route_name": self._route_name,
+                "route_counts": dict(self._route_counts),
                 "samples": self._samples,
                 "error": self._last_error,
             }
+
+    def _load_route_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        if not self.root.exists():
+            return counts
+        for metadata_path in self.root.glob("run-*/metadata.json"):
+            try:
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                route_id = metadata.get("route_id")
+                if route_id and metadata.get("run_mode") == "manual":
+                    counts[route_id] = counts.get(route_id, 0) + 1
+            except (OSError, json.JSONDecodeError):
+                continue
+        return counts
 
     def _loop(self) -> None:
         period = 1 / max(1, self.hz)

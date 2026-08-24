@@ -33,7 +33,7 @@ class DatasetTests(unittest.TestCase):
         recorder.root = Path(tempfile.mkdtemp())
         recorder.hz = 20
         try:
-            recorder.start()
+            recorder.start("manual", {"route_id": "sopi", "route_name": "Sopi"})
             recorder.record_event("requested_drive", {"sequence": 9, "x": -0.5, "y": 1.0})
             time.sleep(0.25)
             recorder.stop()
@@ -45,6 +45,8 @@ class DatasetTests(unittest.TestCase):
             self.assertIn('"action":"left"', (session / "labels.jsonl").read_text())
             self.assertIn('"sequence":9', (session / "events.jsonl").read_text())
             self.assertIn('"run_mode": "manual"', (session / "metadata.json").read_text())
+            self.assertIn('"route_id": "sopi"', (session / "metadata.json").read_text())
+            self.assertEqual(status["route_counts"]["sopi"], 1)
         finally:
             recorder.shutdown()
 

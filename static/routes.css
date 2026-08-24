@@ -1,0 +1,46 @@
+.route-picker {
+  margin: 2px 0 12px;
+}
+
+.route-picker > span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.route-picker > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  padding: 3px;
+  background: #eeeef2;
+  border-radius: 11px;
+}
+
+.route-picker button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.route-picker button.selected {
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 1px 4px #0002;
+}
+
+.route-picker button:disabled {
+  opacity: .55;
+}
+
+.route-picker small {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}

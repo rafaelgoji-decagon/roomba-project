@@ -45,8 +45,9 @@ def main() -> None:
     parser.add_argument("--datasets", type=Path, default=Path("datasets"))
     parser.add_argument("--output-dir", type=Path, default=Path("training/artifacts"))
     parser.add_argument("--points", type=int, default=201)
+    parser.add_argument("--route", help="Train only recordings with this route_id (for example: sopi)")
     args = parser.parse_args()
-    paths = discover_runs(args.datasets)
+    paths = discover_runs(args.datasets, args.route)
     runs = [enrich_run(path) for path in paths]
     if len(runs) < 3:
         raise SystemExit("At least three complete runs are required")
@@ -57,6 +58,7 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     model = {
         "model_type": "median_odometry_route_v1",
+        "route_id": args.route,
         "training_runs": [path.name for path in paths],
         "alignment": "normalized mean encoder distance",
         "points": args.points,

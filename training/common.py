@@ -16,11 +16,18 @@ def load_jsonl(path: Path) -> list[dict]:
         return [json.loads(line) for line in handle if line.strip()]
 
 
-def discover_runs(dataset_dir: Path) -> list[Path]:
-    return sorted(
-        path for path in dataset_dir.glob("run-*")
-        if (path / "labels.jsonl").is_file() and (path / "metadata.json").is_file()
-    )
+def discover_runs(dataset_dir: Path, route_id: str | None = None) -> list[Path]:
+    runs = []
+    for path in dataset_dir.glob("run-*"):
+        metadata_path = path / "metadata.json"
+        if not (path / "labels.jsonl").is_file() or not metadata_path.is_file():
+            continue
+        if route_id is not None:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            if metadata.get("route_id") != route_id:
+                continue
+        runs.append(path)
+    return sorted(runs)
 
 
 def unwrap(values: list[int]) -> list[int]:
