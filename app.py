@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -26,7 +27,13 @@ camera = Camera()
 recorder = DatasetRecorder(camera, controller.snapshot)
 controller.set_event_sink(recorder.record_event)
 runner = AutonomousRunner(controller, ROOT / "training" / "artifacts" / "route_reference.json", recorder.record_event)
-origin = OriginCalibration(camera.latest, ROOT / "calibration" / "origin.json")
+ORIGIN_DIR = ROOT / "calibration" / "origins"
+LEGACY_ORIGIN = ROOT / "calibration" / "origin.json"
+NOGAL_ORIGIN = ORIGIN_DIR / "nogal.json"
+if LEGACY_ORIGIN.exists() and not NOGAL_ORIGIN.exists():
+    ORIGIN_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(LEGACY_ORIGIN, NOGAL_ORIGIN)
+origin = OriginCalibration(camera.latest, NOGAL_ORIGIN, "nogal")
 control_lock = asyncio.Lock()
 ROUTES = {
     "nogal": {"id": "nogal", "name": "Nogal", "trained": True},
@@ -142,13 +149,27 @@ async def control_socket(socket: WebSocket) -> None:
                             "recording_started",
                             {"client": client, "route_id": route["id"], "route_name": route["name"]},
                         )
+                    elif kind == "route_select":
+                        route_id = str(message.get("route_id", "")).lower()
+                        route = ROUTES.get(route_id)
+                        if route is None:
+                            await socket.send_json({"type": "error", "message": "Selecciona una ruta válida"})
+                            continue
+                        if recorder.status()["recording"] or runner.status()["state"] == "running":
+                            await socket.send_json({"type": "error", "message": "No puedes cambiar de ruta en movimiento"})
+                            continue
+                        runner.cancel("route changed")
+                        origin.select_route(route_id, ORIGIN_DIR / f"{route_id}.json")
                     elif kind == "record_stop":
                         recorder.record_event("recording_stopped", {"client": client})
                         recorder.stop()
                     elif kind == "auto_ready":
                         recorder.record_event("requested_autonomous_ready", {"client": client})
                         origin_state = origin.status()
-                        if not origin_state["target_saved"]:
+                        route = ROUTES[origin_state["route_id"]]
+                        if not route["trained"]:
+                            runner.reject(f"La ruta {route['name']} todavía no está entrenada")
+                        elif not origin_state["target_saved"]:
                             runner.reject("Guarda primero el origen visual")
                         elif not (origin_state.get("comparison") or {}).get("aligned"):
                             runner.reject("La pose no coincide con el origen guardado")
@@ -156,6 +177,10 @@ async def control_socket(socket: WebSocket) -> None:
                             runner.ready()
                     elif kind == "auto_play":
                         origin_state = origin.status()
+                        route = ROUTES[origin_state["route_id"]]
+                        if not route["trained"]:
+                            runner.reject(f"La ruta {route['name']} todavía no está entrenada")
+                            continue
                         if not (origin_state.get("comparison") or {}).get("aligned"):
                             runner.reject("La pose visual cambió; vuelve a preparar la ruta")
                             continue

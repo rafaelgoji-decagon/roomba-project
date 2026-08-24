@@ -17,6 +17,7 @@ function selectTrainingRoute(route, force = false) {
     ? `Ruta nueva · ${routeCounts.sopi || 0}/10 grabaciones`
     : 'Ruta existente y entrenada';
   ui.record.textContent = `Grabar ruta ${isSopi ? 'Sopi' : 'Nogal'}`;
+  if (!force) send({type: 'route_select', route_id: route});
 }
 
 routeUi.nogal.addEventListener('click', () => selectTrainingRoute('nogal'));

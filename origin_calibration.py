@@ -24,9 +24,15 @@ CAPTURE_TIMEOUT_SECONDS = 8
 
 
 class OriginCalibration:
-    def __init__(self, latest_frame: Callable[[], tuple[int, bytes | None]], path: Path) -> None:
+    def __init__(
+        self,
+        latest_frame: Callable[[], tuple[int, bytes | None]],
+        path: Path,
+        route_id: str = "nogal",
+    ) -> None:
         self.latest_frame = latest_frame
         self.path = path
+        self.route_id = route_id
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -75,6 +81,17 @@ class OriginCalibration:
         event("origin", f"Capturing {CAPTURE_SAMPLES} stable origin observations", "warn")
         return True
 
+    def select_route(self, route_id: str, path: Path) -> None:
+        """Switch the active calibration without restarting camera detection."""
+        with self._lock:
+            self.route_id = route_id
+            self.path = path
+            self._target = self._load_target()
+            self._capture = []
+            self._state = "saved" if self._target else "looking"
+            self._error = ""
+        event("origin", f"Selected {route_id} origin calibration", "ok")
+
     def status(self) -> dict[str, Any]:
         with self._lock:
             detection = dict(self._detection)
@@ -84,6 +101,7 @@ class OriginCalibration:
             count = len(self._capture)
         comparison = self._compare(detection, target) if target and detection.get("visible") else None
         return {
+            "route_id": self.route_id,
             "state": state,
             "error": error,
             "board_visible": bool(detection.get("visible")),

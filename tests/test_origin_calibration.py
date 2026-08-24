@@ -64,6 +64,19 @@ class OriginCalibrationTests(unittest.TestCase):
         self.assertFalse(comparison["aligned"])
         self.assertNotEqual(comparison["guidance"], "Pose aligned")
 
+    def test_route_calibrations_are_independent(self):
+        root = Path(tempfile.mkdtemp())
+        source = FrameSource(board_frame())
+        (root / "nogal.json").write_text('{"saved_at":"nogal"}', encoding="utf-8")
+        calibration = OriginCalibration(source.latest, root / "nogal.json", "nogal")
+        self.assertTrue(calibration.status()["target_saved"])
+        calibration.select_route("sopi", root / "sopi.json")
+        status = calibration.status()
+        self.assertEqual(status["route_id"], "sopi")
+        self.assertFalse(status["target_saved"])
+        calibration.select_route("nogal", root / "nogal.json")
+        self.assertTrue(calibration.status()["target_saved"])
+
 
 if __name__ == "__main__":
     unittest.main()
