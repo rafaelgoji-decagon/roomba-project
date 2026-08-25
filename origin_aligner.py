@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from controller import RobotController
 from terminal_ui import event
+from training.common import ENCODER_MODULUS, MM_PER_COUNT
 
 ALIGN_MAX_SPEED_MM_S = 85
 ALIGN_CONTROL_HZ = 10
@@ -18,6 +19,15 @@ MAX_OBSERVATION_AGE_MS = 400
 MARKER_LOSS_GRACE_SECONDS = 0.60
 FILTER_ALPHA = 0.45
 MAX_COMMAND_STEP_MM_S = 18
+DISTANCE_CRUISE_THRESHOLD_MM = 120
+DISTANCE_CRUISE_KP = 0.45
+DISTANCE_CRUISE_MIN_MM_S = 40
+DISTANCE_CRUISE_MAX_MM_S = 75
+MICRO_SPEED_MM_S = 38
+MICRO_MIN_SECONDS = 0.08
+MICRO_MAX_SECONDS = 0.16
+MICRO_OBSERVE_FRAMES = 2
+MAX_STAGNANT_MICROSTEPS = 6
 
 
 @dataclass(frozen=True)
@@ -57,6 +67,7 @@ class OriginAligner:
             "observation_age_ms": None,
             "vision_hz": ALIGN_CONTROL_HZ,
             "update_interval_ms": round(1000 / ALIGN_CONTROL_HZ),
+            "micro_motion_mm": None,
         }
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -154,6 +165,11 @@ class OriginAligner:
         last_marker_at = time.monotonic()
         filtered: dict[str, float] | None = None
         commanded = (0.0, 0.0)
+        micro_until: float | None = None
+        micro_observe_frames = 0
+        micro_encoder_start: tuple[int, int] | None = None
+        micro_score_before: float | None = None
+        stagnant_microsteps = 0
         cycle = 0
         while not self._stop.wait(1 / ALIGN_CONTROL_HZ):
             now = time.monotonic()
@@ -191,6 +207,26 @@ class OriginAligner:
                 self.controller.stop_motion()
                 self._fail("La imagen dejó de actualizarse; motores detenidos")
                 return
+            if micro_until is not None:
+                if now < micro_until:
+                    if not self.controller.command_wheels(commanded[0], commanded[1], MICRO_SPEED_MM_S):
+                        self._fail("El control de motores quedó desactivado")
+                        return
+                    continue
+                self.controller.stop_motion()
+                commanded = (0.0, 0.0)
+                micro_until = None
+                micro_observe_frames = MICRO_OBSERVE_FRAMES
+                self._set(
+                    "running",
+                    "Midiendo resultado de la microcorrección",
+                    stage="micro",
+                    phase="settle",
+                    step_label="Validando microcorrección",
+                    command={"left_mm_s": 0, "right_mm_s": 0},
+                    observation_age_ms=observation_age,
+                )
+                continue
             sequence = origin.get("detection", {}).get("frame_sequence")
             if sequence == last_sequence:
                 if not self.controller.command_wheels(commanded[0], commanded[1], ALIGN_MAX_SPEED_MM_S):
@@ -220,6 +256,36 @@ class OriginAligner:
                     event("origin", "Visual origin aligned", "ok")
                     return
                 continue
+            if micro_observe_frames:
+                micro_observe_frames -= 1
+                commanded = (0.0, 0.0)
+                self.controller.stop_motion()
+                micro_motion_mm = None
+                if micro_observe_frames == 0 and comparison:
+                    score = float(comparison.get("score", 0))
+                    if micro_score_before is not None and score < micro_score_before + 0.2:
+                        stagnant_microsteps += 1
+                    else:
+                        stagnant_microsteps = 0
+                    encoders = robot.get("sensors", {}).get("encoders", {})
+                    if micro_encoder_start and {"left", "right"} <= encoders.keys():
+                        left_delta = self._delta_encoder(micro_encoder_start[0], encoders["left"]) * MM_PER_COUNT
+                        right_delta = self._delta_encoder(micro_encoder_start[1], encoders["right"]) * MM_PER_COUNT
+                        micro_motion_mm = round((abs(left_delta) + abs(right_delta)) / 2, 1)
+                    if stagnant_microsteps >= MAX_STAGNANT_MICROSTEPS:
+                        self._fail("El ajuste fino no está mejorando; revisa espacio, superficie y visibilidad")
+                        return
+                self._set(
+                    "running",
+                    "Comparando la nueva pose",
+                    stage="micro",
+                    phase="observe",
+                    step_label="Midiendo mejora",
+                    command={"left_mm_s": 0, "right_mm_s": 0},
+                    micro_motion_mm=micro_motion_mm,
+                    observation_age_ms=observation_age,
+                )
+                continue
             stable = 0
             if comparison:
                 measured = {
@@ -232,11 +298,28 @@ class OriginAligner:
                     for key, value in measured.items()
                 }
                 dx, scale_error, angle = filtered["dx"], filtered["scale"], filtered["angle"]
-                error_size = max(abs(dx) / 0.015, abs(scale_error) / 0.04, abs(angle) / 1.5)
+                error_size = max(
+                    abs(dx) / 0.015,
+                    abs(scale_error) / 0.04,
+                    abs(angle) / 1.5,
+                    abs(float(comparison.get("offset_y_percent", 0))) / 2,
+                    abs(float(comparison.get("corner_error_percent", 0))),
+                )
                 profile = motion_profile(error_size)
-                left, right, phase = self._pose_command(dx, scale_error, angle)
+                distance_error_mm = float(comparison.get("distance_error_mm", 0))
+                if abs(distance_error_mm) >= DISTANCE_CRUISE_THRESHOLD_MM:
+                    left = right = self._distance_cruise_speed(distance_error_mm)
+                    profile = MotionProfile(
+                        "cruise",
+                        DISTANCE_CRUISE_MAX_MM_S,
+                        f"Tramo estimado: {abs(distance_error_mm) / 10:.0f} cm",
+                    )
+                    phase = "Recorriendo distancia calculada"
+                else:
+                    left, right, phase = self._pose_command(dx, scale_error, angle)
                 errors = {
                     "distance_percent": round(scale_error * 100, 1),
+                    "distance_mm": round(distance_error_mm),
                     "horizontal_percent": round(float(comparison["offset_x_percent"]), 1),
                     "angle_deg": round(angle, 1),
                     "score": round(float(comparison.get("score", 0)), 1),
@@ -251,6 +334,38 @@ class OriginAligner:
                 profile = MotionProfile("search", 35, "Búsqueda visual")
                 errors = None
                 phase = "Buscando el tablero completo"
+            if profile.stage == "fine":
+                left, right, duration = self._micro_command(left, right, error_size)
+                if not left and not right:
+                    self._fail("La pose requiere una corrección que la base diferencial no puede resolver con seguridad")
+                    return
+                commanded = (left, right)
+                micro_until = now + duration
+                encoders = robot.get("sensors", {}).get("encoders", {})
+                micro_encoder_start = (
+                    (encoders.get("left"), encoders.get("right"))
+                    if encoders.get("left") is not None and encoders.get("right") is not None
+                    else None
+                )
+                micro_score_before = float(comparison.get("score", 0)) if comparison else None
+                cycle += 1
+                self._set(
+                    "running",
+                    "Ejecutando microcorrección medible",
+                    stage="micro",
+                    phase="move",
+                    cycle=cycle,
+                    speed_limit_mm_s=MICRO_SPEED_MM_S,
+                    step_label=f"Microcorrección {round(duration * 1000)} ms",
+                    command={"left_mm_s": round(left), "right_mm_s": round(right)},
+                    errors=errors,
+                    control_mode="microstep",
+                    observation_age_ms=observation_age,
+                )
+                if not self.controller.command_wheels(left, right, MICRO_SPEED_MM_S):
+                    self._fail("El control de motores quedó desactivado")
+                    return
+                continue
             left, right = self._scale_wheels(left, right, profile.speed_limit_mm_s)
             left = self._slew(commanded[0], left)
             right = self._slew(commanded[1], right)
@@ -262,6 +377,7 @@ class OriginAligner:
                 cycle=cycle,
                 command={"left_mm_s": round(left), "right_mm_s": round(right)},
                 errors=errors,
+                control_mode="continuous",
                 observation_age_ms=observation_age,
             )
             self._set("running", phase, **details)
@@ -297,6 +413,33 @@ class OriginAligner:
             turn = self._clamp(dx * 120 + angle * 2, 20)
             message = "Ajuste visual fino continuo"
         return linear + turn, linear - turn, message
+
+    @staticmethod
+    def _delta_encoder(previous: int, current: int) -> int:
+        return (current - previous + ENCODER_MODULUS // 2) % ENCODER_MODULUS - ENCODER_MODULUS // 2
+
+    @classmethod
+    def _distance_cruise_speed(cls, distance_error_mm: float) -> float:
+        magnitude = max(
+            DISTANCE_CRUISE_MIN_MM_S,
+            min(DISTANCE_CRUISE_MAX_MM_S, abs(distance_error_mm) * DISTANCE_CRUISE_KP),
+        )
+        return magnitude if distance_error_mm > 0 else -magnitude
+
+    @classmethod
+    def _micro_command(cls, left: float, right: float, error_size: float) -> tuple[float, float, float]:
+        peak = max(abs(left), abs(right))
+        if peak < 1:
+            return 0.0, 0.0, MICRO_MIN_SECONDS
+        scale = MICRO_SPEED_MM_S / peak
+        left *= scale
+        right *= scale
+        if abs(left) < MICRO_SPEED_MM_S * 0.3:
+            left = 0
+        if abs(right) < MICRO_SPEED_MM_S * 0.3:
+            right = 0
+        duration = max(MICRO_MIN_SECONDS, min(MICRO_MAX_SECONDS, 0.08 + error_size * 0.035))
+        return left, right, duration
 
     @staticmethod
     def _scale_wheels(left: float, right: float, limit: int) -> tuple[float, float]:

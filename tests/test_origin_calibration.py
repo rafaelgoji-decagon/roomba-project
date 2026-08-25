@@ -75,6 +75,11 @@ class OriginCalibrationTests(unittest.TestCase):
         comparison = calibration._compare(shifted, calibration._target)
         self.assertFalse(comparison["aligned"])
         self.assertNotEqual(comparison["guidance"], "Pose aligned")
+        farther = dict(calibration._detection, width=calibration._detection["width"] / 2)
+        distance_comparison = calibration._compare(farther, calibration._target)
+        self.assertGreater(distance_comparison["distance_error_mm"], 0)
+        self.assertGreater(distance_comparison["current_distance_mm"], 0)
+        self.assertGreater(distance_comparison["target_distance_mm"], 0)
 
     def test_route_calibrations_are_independent(self):
         root = Path(tempfile.mkdtemp())

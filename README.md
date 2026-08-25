@@ -57,6 +57,10 @@ Para cambiar cámara o frecuencia: `ROOMBA_CAMERA=/dev/video0`,
 `ROOMBA_DATA_HZ=5`, `ROOMBA_PREVIEW_FPS=15`. Si el navegador se desconecta, la
 sesión se detiene y queda guardada.
 
+La estimación inicial de distancia al origen usa el ancho físico del tablero y
+un campo de visión horizontal de cámara de 70°. Puede calibrarse con
+`ROOMBA_CAMERA_HFOV_DEG=70` si la webcam instalada tiene otro lente.
+
 Normalmente el adaptador será `/dev/ttyUSB0`. Si hay más de uno:
 
 ```bash

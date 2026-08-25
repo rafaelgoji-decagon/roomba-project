@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import math
+import os
 import statistics
 import threading
 import time
@@ -22,6 +23,7 @@ EXPECTED_IDS = (0, 1, 2, 3)
 CAPTURE_SAMPLES = 20
 CAPTURE_TIMEOUT_SECONDS = 8
 VISION_HZ = 10
+BOARD_WIDTH_MM = 152.0
 
 
 class OriginCalibration:
@@ -34,6 +36,7 @@ class OriginCalibration:
         self.latest_frame = latest_frame
         self.path = path
         self.route_id = route_id
+        self.camera_hfov_deg = float(os.getenv("ROOMBA_CAMERA_HFOV_DEG", "70"))
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -227,12 +230,18 @@ class OriginCalibration:
         self._error = ""
         event("origin", "Origin pose saved from stable ArUco observations", "ok")
 
-    @staticmethod
-    def _compare(detection: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    def _compare(self, detection: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
         pose = target["pose"]
         dx = detection["center_x"] - pose["center_x"]
         dy = detection["center_y"] - pose["center_y"]
         scale = detection["width"] / max(pose["width"], 1e-6)
+        focal_px = detection["image_width"] / (2 * math.tan(math.radians(self.camera_hfov_deg) / 2))
+        current_width_px = detection["width"] * detection["image_width"]
+        target_image_width = float(target.get("image_size", [detection["image_width"]])[0])
+        target_width_px = pose["width"] * target_image_width
+        current_distance_mm = focal_px * BOARD_WIDTH_MM / max(current_width_px, 1)
+        target_distance_mm = focal_px * BOARD_WIDTH_MM / max(target_width_px, 1)
+        distance_error_mm = current_distance_mm - target_distance_mm
         angle = detection["angle_deg"] - pose["angle_deg"]
         target_corners = np.asarray(target["corners"], dtype=float)
         current_corners = np.asarray(detection["corners"], dtype=float)
@@ -260,6 +269,9 @@ class OriginCalibration:
             "offset_x_percent": round(dx * 100, 2),
             "offset_y_percent": round(dy * 100, 2),
             "scale_ratio": round(scale, 4),
+            "distance_error_mm": round(distance_error_mm, 1),
+            "current_distance_mm": round(current_distance_mm, 1),
+            "target_distance_mm": round(target_distance_mm, 1),
             "angle_error_deg": round(angle, 2),
             "corner_error_percent": round(corner_error * 100, 2),
             "guidance": guidance,

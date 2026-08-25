@@ -21,6 +21,18 @@ class OriginAlignerTests(unittest.TestCase):
         self.assertEqual(OriginAligner._slew(18, -80), 0)
         self.assertEqual(OriginAligner._slew(10, 15), 15)
 
+    def test_distance_cruise_is_directional_and_bounded(self):
+        self.assertEqual(OriginAligner._distance_cruise_speed(500), 75)
+        self.assertEqual(OriginAligner._distance_cruise_speed(-500), -75)
+        self.assertEqual(OriginAligner._distance_cruise_speed(120), 54)
+
+    def test_micro_command_uses_effective_speed_and_short_duration(self):
+        left, right, duration = OriginAligner._micro_command(4, 2, 1.0)
+        self.assertEqual(left, 38)
+        self.assertEqual(right, 19)
+        self.assertGreaterEqual(duration, 0.08)
+        self.assertLessEqual(duration, 0.16)
+
     def test_stale_camera_stops_without_motion(self):
         controller = FakeController()
         calls = 0

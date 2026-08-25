@@ -38,5 +38,7 @@ renderOrigin = function(origin = {}) {
     ? `En vivo · ruedas ${command.left_mm_s || 0}/${command.right_mm_s || 0} mm/s`
     : (alignment.state === 'fault'
       ? (recoverableFault ? 'Marcador visible · listo para reintentar' : 'Motores detenidos')
-      : (alignment.phase === 'settle' ? 'Motores detenidos · validando pose' : `${Math.round(score)}% de coincidencia`));
+      : (alignment.phase === 'settle'
+        ? 'Motores detenidos · validando pose'
+        : (alignment.micro_motion_mm != null ? `Movimiento medido: ${alignment.micro_motion_mm} mm` : `${Math.round(score)}% de coincidencia`)));
 };
