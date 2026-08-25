@@ -10,47 +10,112 @@ class OriginAlignerTests(unittest.TestCase):
         profiles = [motion_profile(error) for error in (12, 6, 3, 1)]
         self.assertEqual([profile.stage for profile in profiles], ["coarse", "approach", "refine", "fine"])
         self.assertEqual([profile.speed_limit_mm_s for profile in profiles], [75, 60, 48, 30])
-        self.assertEqual([profile.pulse_seconds for profile in profiles], [1.0, 0.75, 0.5, 0.25])
-        self.assertGreater(profiles[0].pulse_seconds, 0.55)
 
     def test_wheel_scaling_preserves_ratio(self):
         left, right = OriginAligner._scale_wheels(100, 50, 75)
         self.assertEqual(left, 75)
         self.assertEqual(right, 37.5)
 
-    def test_status_reports_move_settle_observe_and_zero_between_pulses(self):
-        controller = FakeController()
-        aligner = OriginAligner(controller, lambda: {})
-        controller.arm()
-        profile = MotionProfile("fine", 30, 0.02, "Paso fino")
-        self.assertTrue(aligner._pulse(20, 10, profile, 3, "Ajuste fino", {"score": 92}))
-        moving = aligner.status()
-        self.assertEqual(moving["phase"], "move")
-        self.assertEqual(moving["cycle"], 3)
-        self.assertEqual(moving["command"], {"left_mm_s": 20, "right_mm_s": 10})
-        self.assertTrue(aligner._settle())
-        self.assertEqual(aligner.status()["phase"], "observe")
-        first_stop = controller.commands.index((0, 0))
-        self.assertTrue(all(command == (0, 0) for command in controller.commands[first_stop:]))
+    def test_command_slew_limits_each_visual_update(self):
+        self.assertEqual(OriginAligner._slew(0, 80), 18)
+        self.assertEqual(OriginAligner._slew(18, -80), 0)
+        self.assertEqual(OriginAligner._slew(10, 15), 15)
 
-    def test_hazard_during_long_pulse_stops_and_disarms(self):
+    def test_stale_camera_stops_without_motion(self):
         controller = FakeController()
-        aligner = OriginAligner(controller, lambda: {})
-        controller.arm()
+        calls = 0
+
+        def origin():
+            nonlocal calls
+            calls += 1
+            return {
+                "target_saved": True,
+                "marker_ids": [0, 1, 2, 3],
+                "observation_age_ms": 500 if calls > 1 else 0,
+                "detection": {"frame_sequence": calls},
+                "comparison": {
+                    "aligned": False,
+                    "offset_x_percent": 0,
+                    "scale_ratio": 0.7,
+                    "angle_error_deg": 0,
+                },
+            }
+
+        aligner = OriginAligner(controller, origin)
+        self.assertTrue(aligner.start())
+        deadline = time.monotonic() + 2
+        while aligner.status()["state"] == "running" and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(aligner.status()["state"], "fault")
+        self.assertIn("imagen dejó de actualizarse", aligner.status()["message"])
+        self.assertFalse(controller.armed)
+        self.assertFalse(any(command != (0, 0) for command in controller.commands))
+
+    def test_marker_loss_brakes_before_fault(self):
+        controller = FakeController()
+        calls = 0
+
+        def origin():
+            nonlocal calls
+            calls += 1
+            if calls <= 2:
+                return {
+                    "target_saved": True,
+                    "marker_ids": [0, 1, 2, 3],
+                    "observation_age_ms": 0,
+                    "detection": {"frame_sequence": calls},
+                    "comparison": {
+                        "aligned": False,
+                        "offset_x_percent": 0,
+                        "scale_ratio": 0.7,
+                        "angle_error_deg": 0,
+                    },
+                }
+            return {"target_saved": True, "marker_ids": [], "observation_age_ms": 0}
+
+        aligner = OriginAligner(controller, origin)
+        self.assertTrue(aligner.start())
+        deadline = time.monotonic() + 2
+        while aligner.status()["state"] == "running" and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(aligner.status()["state"], "fault")
+        moving = next(index for index, command in enumerate(controller.commands) if command != (0, 0))
+        self.assertIn((0, 0), controller.commands[moving + 1:])
+        self.assertFalse(controller.armed)
+
+    def test_hazard_during_continuous_tracking_stops_and_disarms(self):
+        controller = FakeController()
+        sequence = 0
+
+        def origin():
+            nonlocal sequence
+            sequence += 1
+            return {
+                "target_saved": True,
+                "marker_ids": [0, 1, 2, 3],
+                "observation_age_ms": 0,
+                "detection": {"frame_sequence": sequence},
+                "comparison": {"aligned": False, "offset_x_percent": 0, "scale_ratio": 0.7, "angle_error_deg": 0},
+            }
+
+        aligner = OriginAligner(controller, origin)
+        self.assertTrue(aligner.start())
 
         def trigger_hazard():
-            time.sleep(0.05)
+            time.sleep(0.15)
             controller.hazard = True
 
         import threading
         threading.Thread(target=trigger_hazard, daemon=True).start()
-        profile = MotionProfile("coarse", 75, 1.0, "Paso grande")
-        self.assertFalse(aligner._pulse(70, 70, profile, 1, "Ajustando distancia"))
+        deadline = time.monotonic() + 2
+        while aligner.status()["state"] == "running" and time.monotonic() < deadline:
+            time.sleep(0.02)
         self.assertEqual(aligner.status()["state"], "fault")
         self.assertEqual(aligner.status()["step_label"], "Ajuste detenido")
         self.assertEqual(aligner.status()["command"], {"left_mm_s": 0, "right_mm_s": 0})
         self.assertIsNone(aligner.status()["errors"])
         self.assertFalse(controller.armed)
+        self.assertTrue(any(command != (0, 0) for command in controller.commands))
         self.assertEqual(controller.commands[-1], (0, 0))
 
     def test_already_aligned_requires_stable_readings_and_disarms(self):
@@ -71,7 +136,7 @@ class OriginAlignerTests(unittest.TestCase):
         self.assertFalse(controller.armed)
         self.assertFalse(any(command != (0, 0) for command in controller.commands))
 
-    def test_motion_is_pulsed_then_settled(self):
+    def test_motion_tracks_continuously_then_stops_when_aligned(self):
         controller = FakeController()
         calls = 0
 

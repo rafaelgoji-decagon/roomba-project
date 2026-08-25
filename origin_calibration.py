@@ -21,6 +21,7 @@ from terminal_ui import event
 EXPECTED_IDS = (0, 1, 2, 3)
 CAPTURE_SAMPLES = 20
 CAPTURE_TIMEOUT_SECONDS = 8
+VISION_HZ = 10
 
 
 class OriginCalibration:
@@ -100,6 +101,7 @@ class OriginCalibration:
             error = self._error
             count = len(self._capture)
         comparison = self._compare(detection, target) if target and detection.get("visible") else None
+        observed_at = detection.pop("observed_at_monotonic", None)
         return {
             "route_id": self.route_id,
             "state": state,
@@ -107,6 +109,7 @@ class OriginCalibration:
             "board_visible": bool(detection.get("visible")),
             "marker_ids": detection.get("marker_ids", []),
             "detection": {key: value for key, value in detection.items() if key not in {"corners", "visible", "marker_ids"}},
+            "observation_age_ms": round((time.monotonic() - observed_at) * 1000) if observed_at else None,
             "target_saved": target is not None,
             "saved_at": target.get("saved_at") if target else None,
             "capture_samples": count,
@@ -122,6 +125,7 @@ class OriginCalibration:
                 try:
                     detection = self._detect(frame)
                     detection["frame_sequence"] = sequence
+                    detection["observed_at_monotonic"] = time.monotonic()
                     with self._lock:
                         self._detection = detection
                         capturing = self._state == "capturing"
@@ -136,7 +140,7 @@ class OriginCalibration:
                     with self._lock:
                         self._detection = {"visible": False, "marker_ids": []}
                         self._error = str(error)
-            time.sleep(0.20)
+            time.sleep(1 / VISION_HZ)
 
     def _detect(self, frame: bytes) -> dict[str, Any]:
         with Image.open(io.BytesIO(frame)) as image:

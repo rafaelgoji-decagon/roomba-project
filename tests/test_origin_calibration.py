@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from PIL import Image
 
-from origin_calibration import CAPTURE_SAMPLES, OriginCalibration
+from origin_calibration import CAPTURE_SAMPLES, VISION_HZ, OriginCalibration
 
 
 def board_frame(shift_x=0):
@@ -43,6 +43,18 @@ class OriginCalibrationTests(unittest.TestCase):
         detection = calibration._detect(source.frame)
         self.assertTrue(detection["visible"])
         self.assertEqual(detection["marker_ids"], [0, 1, 2, 3])
+
+    def test_status_exposes_fresh_observation_age(self):
+        source = FrameSource(board_frame())
+        calibration = OriginCalibration(source.latest, Path(tempfile.mkdtemp()) / "origin.json")
+        calibration.start()
+        deadline = time.monotonic() + 2
+        while calibration.status()["observation_age_ms"] is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        status = calibration.status()
+        calibration.stop()
+        self.assertLess(status["observation_age_ms"], 500)
+        self.assertEqual(VISION_HZ, 10)
 
     def test_capture_stable_origin_and_compare_offset(self):
         path = Path(tempfile.mkdtemp()) / "origin.json"

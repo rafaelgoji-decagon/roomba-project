@@ -35,8 +35,8 @@ renderOrigin = function(origin = {}) {
     : (alignment.state === 'fault' ? 'Ajuste detenido' : (alignment.step_label || 'Midiendo pose'));
   const command = alignment.command || {};
   ui.alignDetail.textContent = running && alignment.phase === 'move'
-    ? `${alignment.pulse_seconds || 0} s · ruedas ${command.left_mm_s || 0}/${command.right_mm_s || 0} mm/s`
+    ? `En vivo · ruedas ${command.left_mm_s || 0}/${command.right_mm_s || 0} mm/s`
     : (alignment.state === 'fault'
       ? (recoverableFault ? 'Marcador visible · listo para reintentar' : 'Motores detenidos')
-      : (alignment.phase === 'settle' ? `${alignment.settle_seconds || 1} s sin movimiento` : `${Math.round(score)}% de coincidencia`));
+      : (alignment.phase === 'settle' ? 'Motores detenidos · validando pose' : `${Math.round(score)}% de coincidencia`));
 };
