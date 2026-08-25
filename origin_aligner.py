@@ -4,17 +4,37 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
 from controller import RobotController
 from terminal_ui import event
 
-ALIGN_MAX_SPEED_MM_S = 50
+ALIGN_MAX_SPEED_MM_S = 80
 ALIGN_CONTROL_HZ = 5
 ALIGN_TIMEOUT_SECONDS = 90
 ALIGN_STABLE_READINGS = 5
 SETTLE_SECONDS = 1.0
 MAX_RECOVERY_ATTEMPTS = 2
+
+
+@dataclass(frozen=True)
+class MotionProfile:
+    stage: str
+    speed_limit_mm_s: int
+    pulse_seconds: float
+    step_label: str
+
+
+def motion_profile(error_size: float) -> MotionProfile:
+    """Return a conservative motion band that shrinks near the saved pose."""
+    if error_size >= 8:
+        return MotionProfile("coarse", 75, 1.0, "Paso grande")
+    if error_size >= 4:
+        return MotionProfile("approach", 60, 0.75, "Paso medio")
+    if error_size >= 2:
+        return MotionProfile("refine", 48, 0.50, "Paso corto")
+    return MotionProfile("fine", 30, 0.25, "Paso fino")
 
 
 class OriginAligner:
@@ -24,6 +44,17 @@ class OriginAligner:
         self._lock = threading.Lock()
         self._state = "idle"
         self._message = ""
+        self._details: dict[str, Any] = {
+            "stage": None,
+            "phase": "observe",
+            "cycle": 0,
+            "pulse_seconds": 0,
+            "settle_seconds": SETTLE_SECONDS,
+            "speed_limit_mm_s": 0,
+            "step_label": "",
+            "command": {"left_mm_s": 0, "right_mm_s": 0},
+            "errors": None,
+        }
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -34,12 +65,20 @@ class OriginAligner:
 
     def status(self) -> dict[str, Any]:
         with self._lock:
-            return {"state": self._state, "message": self._message, "max_speed_mm_s": ALIGN_MAX_SPEED_MM_S}
+            return {
+                "state": self._state,
+                "message": self._message,
+                "max_speed_mm_s": ALIGN_MAX_SPEED_MM_S,
+                **self._details,
+                "command": dict(self._details["command"]),
+                "errors": dict(self._details["errors"]) if self._details["errors"] else None,
+            }
 
-    def _set(self, state: str, message: str) -> None:
+    def _set(self, state: str, message: str, **details: Any) -> None:
         with self._lock:
             self._state = state
             self._message = message
+            self._details.update(details)
 
     def start(self) -> bool:
         if self.status()["state"] == "running":
@@ -63,7 +102,7 @@ class OriginAligner:
         if not self.controller.arm():
             self._set("fault", "No fue posible activar los motores")
             return False
-        self._set("running", "Ajustando la pose con el marcador")
+        self._set("running", "Midiendo la pose actual", phase="observe", cycle=0)
         self._thread = threading.Thread(target=self._run, name="origin-align", daemon=True)
         self._thread.start()
         event("origin", f"Visual alignment started · capped at {ALIGN_MAX_SPEED_MM_S}mm/s", "warn")
@@ -77,18 +116,18 @@ class OriginAligner:
         if thread and thread is not threading.current_thread():
             thread.join(timeout=1)
         if self.status()["state"] == "running":
-            self._set("idle", reason)
+            self._set("idle", reason, phase="observe", command={"left_mm_s": 0, "right_mm_s": 0})
 
     def emergency_stop(self) -> None:
         self._stop.set()
         self.controller.emergency_stop()
-        self._set("fault", "Parada de emergencia")
+        self._set("fault", "Parada de emergencia", command={"left_mm_s": 0, "right_mm_s": 0})
 
     def _fail(self, message: str) -> None:
         self._stop.set()
         self.controller.stop_motion()
         self.controller.disarm()
-        self._set("fault", message)
+        self._set("fault", message, command={"left_mm_s": 0, "right_mm_s": 0})
         event("origin", f"Visual alignment stopped · {message}", "danger")
 
     @staticmethod
@@ -101,6 +140,7 @@ class OriginAligner:
         stable_sequence = None
         last_motion: tuple[float, float] | None = None
         recovery_attempts = 0
+        cycle = 0
         while not self._stop.wait(1 / ALIGN_CONTROL_HZ):
             now = time.monotonic()
             robot = self.controller.snapshot()
@@ -120,8 +160,9 @@ class OriginAligner:
                     self._fail("Se perdió el marcador; coloca otra vez un código dentro del encuadre")
                     return
                 recovery_attempts += 1
-                self._set("running", "Recuperando el marcador")
-                if not self._pulse(-last_motion[0], -last_motion[1], 0.30):
+                cycle += 1
+                profile = MotionProfile("recovery", 35, 0.30, "Paso de recuperación")
+                if not self._pulse(-last_motion[0], -last_motion[1], profile, cycle, "Recuperando el marcador"):
                     return
                 if not self._settle():
                     return
@@ -134,9 +175,10 @@ class OriginAligner:
                     stable += 1
                     stable_sequence = sequence
                 self.controller.command_wheels(0, 0, ALIGN_MAX_SPEED_MM_S)
+                self._set("running", "Confirmando el origen", phase="observe", command={"left_mm_s": 0, "right_mm_s": 0})
                 if stable >= ALIGN_STABLE_READINGS:
                     self.controller.disarm()
-                    self._set("aligned", "Origen listo")
+                    self._set("aligned", "Origen listo", phase="observe", command={"left_mm_s": 0, "right_mm_s": 0})
                     event("origin", "Visual origin aligned", "ok")
                     return
                 continue
@@ -174,7 +216,13 @@ class OriginAligner:
                     phase = "Haciendo ajuste fino"
                 left, right = linear + turn, linear - turn
                 error_size = max(abs(dx) / 0.015, abs(scale_error) / 0.04, abs(angle) / 1.5)
-                pulse_seconds = 0.25 if error_size < 2 else (0.40 if error_size < 5 else 0.55)
+                profile = motion_profile(error_size)
+                errors = {
+                    "distance_percent": round(scale_error * 100, 1),
+                    "horizontal_percent": round(float(comparison["offset_x_percent"]), 1),
+                    "angle_deg": round(angle, 1),
+                    "score": round(float(comparison.get("score", 0)), 1),
+                }
             else:
                 center_x = float(origin.get("detection", {}).get("partial_center_x", 0.5))
                 turn = self._clamp((center_x - 0.5) * 100, 35)
@@ -182,23 +230,54 @@ class OriginAligner:
                     turn = 18 if turn > 0 else -18
                 linear = -18 if abs(turn) < 1 else 0
                 left, right = linear + turn, linear - turn
-                pulse_seconds = 0.35
+                profile = MotionProfile("search", 35, 0.35, "Paso de búsqueda")
+                errors = None
                 phase = "Buscando el tablero completo"
-            self._set("running", phase)
-            if not self._pulse(left, right, pulse_seconds):
+            left, right = self._scale_wheels(left, right, profile.speed_limit_mm_s)
+            cycle += 1
+            if not self._pulse(left, right, profile, cycle, phase, errors):
                 return
             last_motion = (left, right)
             if not self._settle():
                 return
 
-    def _pulse(self, left: float, right: float, seconds: float) -> bool:
-        return self._hold(left, right, seconds)
+    @staticmethod
+    def _scale_wheels(left: float, right: float, limit: int) -> tuple[float, float]:
+        scale = max(1.0, abs(left) / limit, abs(right) / limit)
+        return left / scale, right / scale
+
+    def _pulse(
+        self,
+        left: float,
+        right: float,
+        profile: MotionProfile,
+        cycle: int,
+        message: str,
+        errors: dict[str, float] | None = None,
+    ) -> bool:
+        details = asdict(profile)
+        details.update(
+            phase="move",
+            cycle=cycle,
+            command={"left_mm_s": round(left), "right_mm_s": round(right)},
+            errors=errors,
+        )
+        self._set("running", message, **details)
+        return self._hold(left, right, profile.pulse_seconds, profile.speed_limit_mm_s)
 
     def _settle(self) -> bool:
-        self._set("running", "Esperando que la cámara deje de vibrar")
-        return self._hold(0, 0, SETTLE_SECONDS)
+        self._set(
+            "running",
+            "Estabilizando la cámara",
+            phase="settle",
+            command={"left_mm_s": 0, "right_mm_s": 0},
+        )
+        settled = self._hold(0, 0, SETTLE_SECONDS, 0)
+        if settled:
+            self._set("running", "Midiendo de nuevo", phase="observe")
+        return settled
 
-    def _hold(self, left: float, right: float, seconds: float) -> bool:
+    def _hold(self, left: float, right: float, seconds: float, speed_limit: int) -> bool:
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             if self._stop.is_set():
@@ -211,7 +290,7 @@ class OriginAligner:
             if robot.get("status") not in {"connected", "simulated"} or not robot.get("battery_ok"):
                 self._fail("Se perdió la telemetría serial")
                 return False
-            if not self.controller.command_wheels(left, right, ALIGN_MAX_SPEED_MM_S):
+            if not self.controller.command_wheels(left, right, speed_limit):
                 self._fail("El control de motores quedó desactivado")
                 return False
             self._stop.wait(min(0.10, max(0, deadline - time.monotonic())))

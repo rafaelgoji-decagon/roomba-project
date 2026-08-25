@@ -11,6 +11,11 @@
     <div class="wizard-title"><div><span>Origen visual</span><strong id="originHeadline">Buscando marcador</strong></div><b id="originScore">—</b></div>
     <ol class="wizard-steps"><li id="originStep1"><i>1</i><span>Ver tablero<small id="originMarkers">Buscando IDs 0–3</small></span></li><li id="originStep2"><i>2</i><span>Colocar Roomba<small>En el origen exacto</small></span></li><li id="originStep3"><i>3</i><span>Guardar pose<small id="originSamples">20 lecturas estables</small></span></li></ol>
     <div id="originGuidance" class="origin-guidance">Mantén el tablero completo dentro de la cámara.</div>
+    <div id="alignProgress" class="align-progress" hidden>
+      <div class="align-pipeline" aria-label="Ciclo de alineación"><span data-phase="observe">Medir</span><span data-phase="move">Mover</span><span data-phase="settle">Estabilizar</span></div>
+      <div class="align-summary"><strong id="alignStep">Paso medio</strong><small id="alignDetail"></small></div>
+      <div class="align-score"><i id="alignScoreBar"></i></div>
+    </div>
     <div id="originMetrics" class="origin-metrics" hidden><span>Horizontal <b id="originX">—</b></span><span>Escala <b id="originScale">—</b></span><span>Ángulo <b id="originAngle">—</b></span></div>
     <div class="origin-actions"><button id="originAlign" class="primary" type="button" disabled>Ir al origen</button><button id="originCapture" class="secondary" type="button" disabled>Guardar este origen</button></div>
   </div>

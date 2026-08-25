@@ -12,6 +12,18 @@
 .wizard-steps li.done i { background:var(--green); color:#fff; }
 .wizard-steps li.active i { background:var(--blue); color:#fff; }
 .origin-guidance { padding:10px 11px; background:#fff; border-radius:10px; color:var(--muted); font-size:12px; line-height:1.35; }
+.align-progress { margin-top:9px; padding:11px; border-radius:11px; background:#fff; }
+.align-pipeline { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; }
+.align-pipeline span { padding:7px 4px; border-radius:8px; background:#f1f1f3; color:#98989d; text-align:center; font-size:10px; font-weight:650; transition:background .2s,color .2s; }
+.align-pipeline span.active { background:#e8f1ff; color:var(--blue); animation:align-pulse 1s ease-in-out infinite alternate; }
+.align-summary { display:flex; justify-content:space-between; gap:8px; align-items:baseline; margin-top:10px; }
+.align-summary strong { font-size:13px; }
+.align-summary small { color:var(--muted); font-size:9px; text-align:right; }
+.align-score { height:7px; margin-top:8px; overflow:hidden; border-radius:99px; background:#e5e5e7; }
+.align-score i { display:block; width:0; height:100%; border-radius:inherit; background:var(--blue); transition:width .3s ease; }
+.align-progress.aligned .align-score i { background:var(--green); }
+.align-progress.fault { box-shadow:inset 0 0 0 1px #ffb4ae; }
+@keyframes align-pulse { to { background:#dceaff; } }
 .origin-metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:9px 0; }
 .origin-metrics span { padding:7px; background:#fff; border-radius:8px; color:var(--muted); font-size:9px; }
 .origin-metrics b { display:block; margin-top:3px; color:var(--text); font-size:11px; }
