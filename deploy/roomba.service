@@ -1,0 +1,20 @@
+[Unit]
+Description=Roomba local control portal
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=kosmos-0
+Group=kosmos-0
+SupplementaryGroups=plugdev video dialout
+WorkingDirectory=/home/kosmos-0/roomba-project
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/kosmos-0/roomba-project/.venv/bin/python /home/kosmos-0/roomba-project/run.py
+Restart=always
+RestartSec=3
+TimeoutStopSec=8
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
