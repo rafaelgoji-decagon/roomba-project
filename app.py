@@ -84,7 +84,15 @@ def full_status() -> dict:
 
 @app.get("/camera.mjpg")
 def camera_stream() -> StreamingResponse:
-    return StreamingResponse(camera.frames(), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(
+        camera.frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.websocket("/ws/control")

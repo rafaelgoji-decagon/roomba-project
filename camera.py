@@ -19,10 +19,10 @@ class Camera:
         self.device = os.getenv("ROOMBA_CAMERA", "/dev/video0")
         self.width = int(os.getenv("ROOMBA_CAMERA_WIDTH", "1280"))
         self.height = int(os.getenv("ROOMBA_CAMERA_HEIGHT", "720"))
-        self.fps = int(os.getenv("ROOMBA_CAMERA_FPS", "15"))
+        self.fps = int(os.getenv("ROOMBA_CAMERA_FPS", "30"))
         self.preview_width = int(os.getenv("ROOMBA_PREVIEW_WIDTH", "320"))
         self.preview_height = int(os.getenv("ROOMBA_PREVIEW_HEIGHT", "180"))
-        self.preview_fps = float(os.getenv("ROOMBA_PREVIEW_FPS", "4"))
+        self.preview_fps = float(os.getenv("ROOMBA_PREVIEW_FPS", "15"))
         self.preview_quality = int(os.getenv("ROOMBA_PREVIEW_QUALITY", "30"))
         self._condition = threading.Condition()
         self._frame: bytes | None = None
@@ -31,6 +31,7 @@ class Camera:
         self._preview_sequence = 0
         self._running = False
         self._thread: threading.Thread | None = None
+        self._preview_thread: threading.Thread | None = None
         self._process: subprocess.Popen[bytes] | None = None
         self._error = "camera starting"
 
@@ -39,7 +40,11 @@ class Camera:
             return
         self._running = True
         self._thread = threading.Thread(target=self._loop, name="camera", daemon=True)
+        self._preview_thread = threading.Thread(
+            target=self._preview_loop, name="camera-preview", daemon=True
+        )
         self._thread.start()
+        self._preview_thread.start()
 
     def stop(self) -> None:
         self._running = False
@@ -50,6 +55,8 @@ class Camera:
             self._condition.notify_all()
         if self._thread:
             self._thread.join(timeout=3)
+        if self._preview_thread:
+            self._preview_thread.join(timeout=3)
 
     def status(self) -> dict[str, object]:
         with self._condition:
@@ -82,7 +89,13 @@ class Camera:
                     return
                 seen, frame = self._preview_sequence, self._preview
             if frame:
-                yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+                yield (
+                    b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                    + str(len(frame)).encode("ascii")
+                    + b"\r\n\r\n"
+                    + frame
+                    + b"\r\n"
+                )
 
     def _command(self) -> list[str]:
         if os.getenv("ROOMBA_MOCK") == "1":
@@ -99,7 +112,6 @@ class Camera:
         ]
 
     def _loop(self) -> None:
-        last_preview = float("-inf")
         while self._running:
             try:
                 event("camera", f"Opening {self.device} · {self.width}x{self.height}@{self.fps}")
@@ -128,14 +140,6 @@ class Camera:
                             self._sequence += 1
                             self._error = ""
                             self._condition.notify_all()
-                        now = time.monotonic()
-                        if now - last_preview >= 1 / max(1, self.preview_fps):
-                            preview = self._make_preview(frame)
-                            with self._condition:
-                                self._preview = preview
-                                self._preview_sequence += 1
-                                self._condition.notify_all()
-                            last_preview = now
             except Exception as error:
                 with self._condition:
                     self._frame = None
@@ -150,10 +154,43 @@ class Camera:
                 time.sleep(2)
         event("camera", "Capture offline", "ok")
 
+    def _preview_loop(self) -> None:
+        """Encode only the freshest frame so preview work cannot form a queue."""
+        seen = -1
+        period = 1 / max(1, self.preview_fps)
+        next_preview = time.monotonic()
+        while self._running:
+            with self._condition:
+                self._condition.wait_for(
+                    lambda: self._sequence != seen or not self._running, timeout=1
+                )
+                if not self._running:
+                    return
+                seen, frame = self._sequence, self._frame
+            if frame is None:
+                continue
+            now = time.monotonic()
+            if now < next_preview:
+                time.sleep(next_preview - now)
+                with self._condition:
+                    seen, frame = self._sequence, self._frame
+                if frame is None:
+                    continue
+            next_preview = max(next_preview + period, time.monotonic())
+            try:
+                preview = self._make_preview(frame)
+            except Exception as error:
+                event("camera", f"Preview failed · {error}", "warn")
+                continue
+            with self._condition:
+                self._preview = preview
+                self._preview_sequence += 1
+                self._condition.notify_all()
+
     def _make_preview(self, frame: bytes) -> bytes:
         with Image.open(BytesIO(frame)) as image:
             image = image.convert("L")
-            image.thumbnail((self.preview_width, self.preview_height), Image.Resampling.LANCZOS)
+            image.thumbnail((self.preview_width, self.preview_height), Image.Resampling.BILINEAR)
             output = BytesIO()
-            image.save(output, format="JPEG", quality=self.preview_quality, optimize=True)
+            image.save(output, format="JPEG", quality=self.preview_quality)
             return output.getvalue()

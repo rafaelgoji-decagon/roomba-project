@@ -1,0 +1,7 @@
+.camera-card {
+  aspect-ratio: 16 / 9;
+}
+
+.camera-card img {
+  object-fit: contain;
+}

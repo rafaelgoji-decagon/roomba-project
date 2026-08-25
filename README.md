@@ -34,8 +34,9 @@ python3 -m venv .venv
 ```
 
 Requiere `ffmpeg` para la webcam (`sudo apt install ffmpeg`). La captura local
-usa por defecto JPEG a color de 1280×720; el portal recibe solamente una vista
-previa 320×180 en escala de grises a 4 FPS para proteger el ancho de banda.
+usa por defecto JPEG a color de 1280×720 a 30 FPS; el portal recibe una vista
+previa 320×180 en escala de grises a hasta 15 FPS, descartando cuadros atrasados
+para priorizar baja latencia.
 Cada vez que se
 pulsa **Comenzar a recolectar**, se crea `datasets/run-.../` con:
 
@@ -53,7 +54,7 @@ futuro. El controlador intenta el paquete OI extendido y cae automáticamente al
 grupo estándar en modelos que no lo soportan.
 
 Para cambiar cámara o frecuencia: `ROOMBA_CAMERA=/dev/video0`,
-`ROOMBA_DATA_HZ=5`, `ROOMBA_PREVIEW_FPS=4`. Si el navegador se desconecta, la
+`ROOMBA_DATA_HZ=5`, `ROOMBA_PREVIEW_FPS=15`. Si el navegador se desconecta, la
 sesión se detiene y queda guardada.
 
 Normalmente el adaptador será `/dev/ttyUSB0`. Si hay más de uno:

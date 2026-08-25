@@ -127,7 +127,17 @@ class OriginAligner:
         self._stop.set()
         self.controller.stop_motion()
         self.controller.disarm()
-        self._set("fault", message, command={"left_mm_s": 0, "right_mm_s": 0})
+        self._set(
+            "fault",
+            message,
+            stage=None,
+            phase="observe",
+            pulse_seconds=0,
+            speed_limit_mm_s=0,
+            step_label="Ajuste detenido",
+            command={"left_mm_s": 0, "right_mm_s": 0},
+            errors=None,
+        )
         event("origin", f"Visual alignment stopped · {message}", "danger")
 
     @staticmethod

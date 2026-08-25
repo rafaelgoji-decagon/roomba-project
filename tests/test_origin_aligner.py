@@ -47,6 +47,9 @@ class OriginAlignerTests(unittest.TestCase):
         profile = MotionProfile("coarse", 75, 1.0, "Paso grande")
         self.assertFalse(aligner._pulse(70, 70, profile, 1, "Ajustando distancia"))
         self.assertEqual(aligner.status()["state"], "fault")
+        self.assertEqual(aligner.status()["step_label"], "Ajuste detenido")
+        self.assertEqual(aligner.status()["command"], {"left_mm_s": 0, "right_mm_s": 0})
+        self.assertIsNone(aligner.status()["errors"])
         self.assertFalse(controller.armed)
         self.assertEqual(controller.commands[-1], (0, 0))
 
